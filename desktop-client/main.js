@@ -4,9 +4,69 @@ const logger = require('./nodeapi/logger');
 
 // 引入IPC处理程序模块
 const { setupIpcHandlers } = require('./nodeapi/ipcHandlers');
+const { stopAllDraftAutoSync } = require('./nodeapi/draftAutoSync');
+const {
+  PROTOCOL,
+  parseDraftUrlFromArgv,
+  parseProtocolRequest,
+  handleProtocolRequest,
+} = require('./nodeapi/draftLauncher');
 
 let mainWindow;
 let ipcHandlersInitialized = false;
+let pendingDraftUrl = null;
+
+// 注册 capcut-mate:// 协议，供 Web「去编辑」一键唤起
+if (process.defaultApp) {
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [
+      path.resolve(process.argv[1]),
+    ]);
+  }
+} else {
+  app.setAsDefaultProtocolClient(PROTOCOL);
+}
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+}
+
+async function handleIncomingProtocolUrl(rawUrl) {
+  if (!rawUrl) return;
+  pendingDraftUrl = rawUrl;
+  const win = mainWindow || createWindow();
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+  const req = parseProtocolRequest(rawUrl);
+  const eventDraftUrl = req?.draftUrl || rawUrl;
+  try {
+    const result = await handleProtocolRequest(rawUrl, win);
+    win.webContents.send('draft-download-finished', {
+      draftUrl: eventDraftUrl,
+      action: req?.action || 'download',
+      success: true,
+      result,
+    });
+  } catch (error) {
+    logger.error('[launcher] protocol handler failed:', error);
+    win.webContents.send('draft-download-finished', {
+      draftUrl: eventDraftUrl,
+      action: req?.action || 'download',
+      success: false,
+      error: error.message,
+    });
+    dialog.showMessageBox(win, {
+      type: 'error',
+      title: req?.action === 'upload' ? '草稿回传失败' : '草稿下载失败',
+      message: error.message || String(error),
+      buttons: ['确定'],
+    });
+  } finally {
+    pendingDraftUrl = null;
+  }
+}
 
 function createWindow() {
   // 避免重复创建窗口
@@ -124,10 +184,51 @@ app.on('browser-window-created', (event, window) => {
   });
 });
 
-// 当Electron完成初始化并准备创建浏览器窗口时调用此方法
-app.whenReady().then(() => {
-  createWindow();
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  if (parseProtocolRequest(url)) {
+    if (app.isReady()) {
+      void handleIncomingProtocolUrl(url);
+    } else {
+      pendingDraftUrl = url;
+    }
+  }
 });
+
+if (gotSingleInstanceLock) {
+  app.on('second-instance', (_event, argv) => {
+    const protocolUrl = argv.find((a) => typeof a === 'string' && a.startsWith(`${PROTOCOL}://`));
+    if (protocolUrl) {
+      void handleIncomingProtocolUrl(protocolUrl);
+    } else {
+      const draftUrl = parseDraftUrlFromArgv(argv);
+      if (draftUrl) {
+        void handleIncomingProtocolUrl(
+          `${PROTOCOL}://download?draft_url=${encodeURIComponent(draftUrl)}&open_jianying=1`
+        );
+      } else if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    }
+  });
+}
+
+if (gotSingleInstanceLock) {
+  app.whenReady().then(() => {
+    createWindow();
+    const fromArgv = process.argv.find((a) => typeof a === 'string' && a.startsWith(`${PROTOCOL}://`));
+    const legacyDraft = parseDraftUrlFromArgv(process.argv);
+    const protocolUrl =
+      fromArgv ||
+      pendingDraftUrl ||
+      (legacyDraft
+        ? `${PROTOCOL}://download?draft_url=${encodeURIComponent(legacyDraft)}&open_jianying=1`
+        : null);
+    if (protocolUrl) void handleIncomingProtocolUrl(protocolUrl);
+  });
+}
 
 // 当所有窗口都关闭时退出应用
 app.on('window-all-closed', () => {
@@ -135,6 +236,10 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
+});
+
+app.on('before-quit', () => {
+  stopAllDraftAutoSync();
 });
 
 app.on('activate', () => {

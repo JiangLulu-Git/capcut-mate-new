@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+
+<head>
+
+  <meta charset="UTF-8" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <title>剪映协作编辑 · CapCut Mate</title>
+
+  <link rel="stylesheet" href="./style.css" />
+
+</head>
+
+<body>
+
+  <div class="page">
+
+    <header class="header">
+
+      <h1>剪映协作编辑</h1>
+
+      <p class="subtitle">提交视频与字幕 → 生成草稿 → 小助手下载并打开剪映 → 编辑完成后回传导出 → 预览成片</p>
+
+    </header>
+
+
+
+    <section class="card setup-card" id="setupCard">
+
+      <div class="setup-head">
+
+        <h2>本机首次使用（B 方案）</h2>
+
+        <button type="button" id="btnHideSetup" class="btn small">收起</button>
+
+      </div>
+
+      <p class="hint">编辑与回传在本机完成，需安装「剪映小助手」+ 本机剪映；导出在云端自动完成。</p>
+
+      <ol id="setupSteps" class="setup-steps"></ol>
+
+      <div class="setup-actions">
+
+        <a id="btnMateDownload" class="btn primary" href="#" target="_blank" rel="noopener" hidden>下载剪映小助手</a>
+
+        <button type="button" id="btnTestMate" class="btn">检测是否已安装</button>
+
+      </div>
+
+    </section>
+
+
+
+    <section class="card">
+
+      <h2>连接</h2>
+
+      <label class="field">
+
+        <span>API 地址</span>
+
+        <input id="apiBase" type="url" value="http://127.0.0.1:30000" />
+
+      </label>
+
+      <label class="field">
+
+        <span>小助手安装页（协议失败时打开）</span>
+
+        <input id="mateInstallUrl" type="text" value="#" placeholder="可选：安装包下载页 URL" />
+
+      </label>
+
+    </section>
+
+
+
+    <section class="card">
+
+      <h2>新建任务</h2>
+
+      <label class="field">
+
+        <span>视频 URL（每行一个，按顺序拼接）</span>
+
+        <textarea id="videoUrls" rows="3" placeholder="https://example.com/a.mp4&#10;https://example.com/b.mp4"></textarea>
+
+      </label>
+
+      <label class="field">
+
+        <span>转场名称（留空则每段末尾默认「叠化」1 秒）</span>
+
+        <input id="transition" type="text" placeholder="叠化" />
+
+      </label>
+
+      <label class="field">
+
+        <span>字幕（每行：文本|开始秒|结束秒）</span>
+
+        <textarea id="captions" rows="3" placeholder="示例字幕|0|3"></textarea>
+
+      </label>
+
+      <button id="btnCreate" class="btn primary">生成草稿</button>
+
+    </section>
+
+
+
+    <section class="card">
+
+      <h2>任务列表</h2>
+
+      <p class="hint">点击「编辑」下载并打开剪映；点「完成」仅回传草稿，导出由服务端自动执行；「预览」播放最新成片。</p>
+
+      <ul id="recordList" class="record-list"></ul>
+
+      <p id="emptyHint" class="hint">暂无任务，请先新建。</p>
+
+    </section>
+
+
+
+    <section class="card" id="previewCard" hidden>
+
+      <h2>预览</h2>
+
+      <p id="previewMeta" class="meta"></p>
+
+      <video id="previewVideo" class="preview-video" controls playsinline></video>
+
+      <p id="previewUrl" class="meta"></p>
+
+    </section>
+
+
+
+    <section class="card log-card">
+
+      <div class="log-head">
+
+        <h2>日志</h2>
+
+        <button id="btnClearLog" class="btn small">清空</button>
+
+      </div>
+
+      <pre id="log" class="log"></pre>
+
+    </section>
+
+  </div>
+
+
+
+  <script src="./app.js"></script>
+
+</body>
+
+</html>
+
+

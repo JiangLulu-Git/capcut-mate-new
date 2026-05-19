@@ -1,7 +1,10 @@
 import asyncio
+import os
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+import config
 from src.router import v1_router
 from src.utils.draft_downloader import download_draft
 from src.utils.logger import logger
@@ -27,6 +30,14 @@ app: FastAPI = FastAPI(title="CapCut Mate API", version="1.0", lifespan=lifespan
 # 2. 注册路由
 app.include_router(router=v1_router, prefix="/openapi/capcut-mate", tags=["capcut-mate"])
 
+_demo_dir = os.path.join(config.PROJECT_ROOT, "static", "local_edit")
+if os.path.isdir(_demo_dir):
+    app.mount("/demo", StaticFiles(directory=_demo_dir, html=True), name="local_edit_demo")
+
+_output_dir = os.path.join(config.PROJECT_ROOT, "output")
+if os.path.isdir(_output_dir):
+    app.mount("/output", StaticFiles(directory=_output_dir), name="draft_output")
+
 # 3. 添加中间件（最后注册的 TraceContextMiddleware 最先处理请求，用于 W3C trace_id）
 app.add_middleware(middleware_class=PrepareMiddleware)
 app.add_middleware(middleware_class=ResponseMiddleware)
@@ -43,6 +54,8 @@ for r in app.routes:
     logger.info("Route: %s %s -> %s", ",".join(sorted(methods)), path, name)
 
 logger.info("CapCut Mate API")
+logger.info("DRAFT_SAVE_PATH=%s", config.DRAFT_SAVE_PATH)
+logger.info("协作编辑演示页: /demo/")
 
 # 5. 启动
 if __name__ == "__main__":

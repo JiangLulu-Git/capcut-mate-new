@@ -35,6 +35,11 @@ def _is_oss_configured() -> bool:
     )
 
 
+def is_object_storage_configured() -> bool:
+    """COS 或 OSS 是否已完整配置（可用于 gen_video 上传）。"""
+    return _is_cos_configured() or _is_oss_configured()
+
+
 def upload_file(file_path: str, expire_days: Optional[int] = None) -> str:
     """
     上传文件到对象存储并返回带签名的临时URL。

@@ -16,7 +16,9 @@ const {
   ensureAutoDetectedDraftPathInConfig,
   checkUrlAccessRight,
   readHistoryRecord,
+  saveAppConfig,
 } = require('./download');
+const { downloadDraftFromUrl, uploadLocalDraft } = require('./draftLauncher');
 
 console.log(process.versions.electron);
 console.log(process.versions.chrome);
@@ -45,6 +47,14 @@ function setupIpcHandlers(mainWindow) {
     await downloadFiles(config, mainWindow);
   });
 
+  ipcMain.handle('download-draft-url', async (event, draftUrl) => {
+    return await downloadDraftFromUrl(draftUrl, mainWindow, { openJianying: true });
+  });
+
+  ipcMain.handle('upload-local-draft', async (event, { draftId, draftUrl }) => {
+    return await uploadLocalDraft(draftId, draftUrl, mainWindow);
+  });
+
   ipcMain.handle('show-message-box', async (event, options) => {
     return await dialog.showMessageBox(mainWindow, {
       type: options.type || 'info',
@@ -58,6 +68,10 @@ function setupIpcHandlers(mainWindow) {
 
   ipcMain.handle('get-config-data', async (event) => {
     return await ensureAutoDetectedDraftPathInConfig();
+  });
+
+  ipcMain.handle('save-app-config', async (event, partial) => {
+    return await saveAppConfig(partial || {});
   });
 
   // 设置默认草稿路径

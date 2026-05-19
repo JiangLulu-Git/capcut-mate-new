@@ -22,11 +22,34 @@ import config
 import os
 import shutil
 import sys
+import time
 import subprocess
 import json
 
 # draft_content.json 中 duration 为微秒；低于 3 秒视为空草稿，不进入剪映导出
 MIN_DRAFT_EXPORT_DURATION_US = 3 * 1_000_000
+
+_EXPORT_FRAMERATE_BY_FPS = {
+    24: "FR_24",
+    25: "FR_25",
+    30: "FR_30",
+    50: "FR_50",
+    60: "FR_60",
+}
+
+
+def _resolve_export_framerate():
+    """根据 config.EXPORT_FRAMERATE_FPS 解析剪映导出面板帧率选项。"""
+    if draft.ExportFramerate is None:
+        return None
+    fps = config.EXPORT_FRAMERATE_FPS
+    attr = _EXPORT_FRAMERATE_BY_FPS.get(fps)
+    if attr is None:
+        logger.warning(
+            "Unsupported EXPORT_FRAMERATE_FPS=%s, fallback to 25fps", fps
+        )
+        return draft.ExportFramerate.FR_25
+    return getattr(draft.ExportFramerate, attr)
 
 # gen_video：同时下载草稿的最大并发，超出部分在 _download_executor 队列中排队
 DRAFT_DOWNLOAD_MAX_CONCURRENT = 3
@@ -131,14 +154,8 @@ class VideoGenTaskManager:
             _default_asyncio_pool,
         )
     
-    def submit_task(self, draft_url: str, api_key: str = None) -> None:
-        """
-        提交视频生成任务
-        
-        Args:
-            draft_url: 草稿URL
-            api_key: API密钥，用于计费
-        """
+    def submit_task(self, draft_url: str) -> None:
+        """提交视频生成任务"""
         # 提取草稿ID
         draft_id = helper.get_url_param(draft_url, "draft_id")
         if not draft_id:
@@ -157,7 +174,6 @@ class VideoGenTaskManager:
             draft_id=draft_id,
             status=TaskStatus.PENDING,
             created_at=datetime.now(),
-            api_key=api_key  # 存储API密钥用于计费
         )
         
         # 存储任务
@@ -498,12 +514,31 @@ class VideoGenTaskManager:
     def _phase_cos_upload_finalize(self, task: VideoGenTask) -> Tuple[str, str]:
         """
         COS 上传、扣费与清理（与其它任务的上传共享线程池，最多 2 路并发）。
-        草稿目录与本地导出 mp4 在 finally 中清理，避免上传/扣费任一环节抛错导致残留。
+        未配置对象存储且开启 GEN_VIDEO_LOCAL_PATH_FALLBACK 时，返回本地 mp4 路径并保留文件。
         """
+        keep_local_mp4 = False
         try:
             task.progress = 95
-            upload_url, upload_failed = self._upload_video_to_cos(task.outfile)
+            from src.utils.upload_file import is_object_storage_configured
+
             self._calculate_and_charge(task, task.outfile)
+
+            if is_object_storage_configured():
+                upload_url, upload_failed = self._upload_video_to_cos(task.outfile)
+                return self._handle_result(upload_url, upload_failed)
+
+            if config.GEN_VIDEO_LOCAL_PATH_FALLBACK:
+                if not os.path.isfile(task.outfile):
+                    return "", f"导出文件不存在: {task.outfile}"
+                local_path = os.path.normpath(os.path.abspath(task.outfile))
+                keep_local_mp4 = True
+                logger.info(
+                    "Object storage not configured; gen_video completed with local path: %s",
+                    local_path,
+                )
+                return local_path, ""
+
+            upload_url, upload_failed = self._upload_video_to_cos(task.outfile)
             return self._handle_result(upload_url, upload_failed)
         except Exception as exc:
             logger.exception(
@@ -511,7 +546,8 @@ class VideoGenTaskManager:
             )
             return "", f"导出草稿失败: {exc}"
         finally:
-            self._cleanup_files(task.outfile, task.draft_id)
+            if not keep_local_mp4:
+                self._cleanup_files(task.outfile, task.draft_id)
     
     def _download_draft(self, task: VideoGenTask) -> bool:
         """
@@ -529,6 +565,8 @@ class VideoGenTaskManager:
         
         if download_success:
             logger.info(f"Draft downloaded successfully: {task.draft_url}")
+            # 等待剪映刷新草稿列表（复制 + robocopy 后索引有延迟）
+            time.sleep(8)
         else:
             logger.error(f"Failed to download draft: {task.draft_url}")
         
@@ -579,7 +617,11 @@ class VideoGenTaskManager:
                 task.progress = 70
 
                 # 导出指定名称的草稿
-                ctrl.export_draft(task.draft_id, outfile)
+                ctrl.export_draft(
+                    task.draft_id,
+                    outfile,
+                    framerate=_resolve_export_framerate(),
+                )
 
             # 检查文件是否生成
             if not os.path.exists(outfile):
@@ -677,11 +719,7 @@ class VideoGenTaskManager:
                 os.remove(outfile)
                 logger.info(f"Cleaned up local video file: {outfile}")
             
-            # 清理下载的草稿文件
-            draft_path = os.path.join(config.DRAFT_SAVE_PATH, draft_id)
-            if os.path.exists(draft_path):
-                shutil.rmtree(draft_path)
-                logger.info(f"Cleaned up draft directory: {draft_path}")
+            # 不删除 DRAFT_SAVE_PATH 下草稿目录（与剪映草稿库同目录时会导致用户草稿丢失）
         except Exception as cleanup_error:
             logger.warning(f"Failed to clean up files: {cleanup_error}")
     

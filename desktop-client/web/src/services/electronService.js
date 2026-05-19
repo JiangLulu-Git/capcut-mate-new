@@ -16,6 +16,10 @@ const mockElectronAPI = {
     console.warn('Electron API not available in browser: getConfigData');
     return { targetDirectory: '' };
   },
+  saveAppConfig: async () => {
+    console.warn('Electron API not available in browser: saveAppConfig');
+    return {};
+  },
   getDownloadLog: async () => {
     console.warn('Electron API not available in browser: getDownloadLog');
     return [];
@@ -84,6 +88,9 @@ const mockElectronAPI = {
 const electronAPI = {
   getConfigData: async () => {
     return await window.electronAPI.getConfigData();
+  },
+  saveAppConfig: async (partial) => {
+    return await window.electronAPI.saveAppConfig(partial);
   },
   getDownloadLog: async () => {
     return await window.electronAPI.getDownloadLog();

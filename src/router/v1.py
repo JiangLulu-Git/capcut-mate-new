@@ -15,7 +15,7 @@ from src.schemas.get_image_animations import GetImageAnimationsResponse
 from src.schemas.easy_create_material import EasyCreateMaterialResponse
 from src.schemas.save_draft import SaveDraftResponse
 from src.schemas.create_draft import CreateDraftResponse
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, Request, Depends, UploadFile, File, Form
 import asyncio
 from src.schemas.create_draft import CreateDraftRequest, CreateDraftResponse
 from src.schemas.add_videos import AddVideosRequest, AddVideosResponse
@@ -33,9 +33,13 @@ from src.schemas.get_image_animations import GetImageAnimationsRequest, GetImage
 from src.schemas.easy_create_material import EasyCreateMaterialRequest, EasyCreateMaterialResponse
 from src.schemas.save_draft import SaveDraftRequest, SaveDraftResponse
 from src.schemas.gen_video import GenVideoRequest, GenVideoResponse
+from src.schemas.auto_render import AutoRenderRequest, AutoRenderResponse
 from src.schemas.gen_video_status import GenVideoStatusRequest, GenVideoStatusResponse
 from src.schemas.gen_video_active_count import GenVideoActiveCountResponse
 from src.schemas.get_draft import GetDraftRequest, GetDraftResponse
+from src.schemas.upload_draft import UploadDraftResponse
+from src.schemas.prepare_local_edit import PrepareLocalEditRequest, PrepareLocalEditResponse
+from src.schemas.client_setup import ClientSetupResponse
 from src.schemas.get_audio_duration import GetAudioDurationRequest, GetAudioDurationResponse
 from src.schemas.timelines import TimelinesRequest, TimelinesResponse
 from src.schemas.audio_timelines import AudioTimelinesRequest, AudioTimelinesResponse
@@ -466,18 +470,58 @@ def get_draft(params: Annotated[GetDraftRequest, Depends()]) -> GetDraftResponse
 
     return GetDraftResponse(files=files)
 
+
+@router.get(path="/client_setup", response_model=ClientSetupResponse)
+def client_setup_endpoint() -> ClientSetupResponse:
+    """
+    本机协作（B 方案）首次配置：小助手安装包地址与步骤说明，供演示页展示。
+    """
+    return ClientSetupResponse(**service.client_setup())
+
+
+@router.get(path="/prepare_local_edit", response_model=PrepareLocalEditResponse)
+def prepare_local_edit_endpoint(
+    params: Annotated[PrepareLocalEditRequest, Depends()],
+) -> PrepareLocalEditResponse:
+    """
+    获取本地协作编辑元信息：draft_url、小助手 download/upload 协议链接、草稿更新时间。
+    """
+    data = service.prepare_local_edit(draft_id=params.draft_id)
+    return PrepareLocalEditResponse(**data)
+
+
+@router.post(path="/upload_draft", response_model=UploadDraftResponse)
+async def upload_draft_endpoint(
+    draft_id: Annotated[str, Form(..., min_length=20, max_length=32)],
+    file: UploadFile = File(..., description="用户本机剪映草稿目录打包的 zip"),
+) -> UploadDraftResponse:
+    """
+    用户本地编辑完成后，将草稿 zip 回传服务器并覆盖 output/draft/{draft_id}。
+    回传成功后由服务端自动提交 gen_video 导出（见 config.AUTO_EXPORT_AFTER_UPLOAD）。
+    客户端/Web 仅需轮询 gen_video_status，无需再调用 gen_video。
+    """
+    result = await service.upload_draft_async(draft_id, file.file)
+    return UploadDraftResponse(**result)
+
+
+@router.post(path="/auto_render", response_model=AutoRenderResponse)
+def auto_render_endpoint(body: AutoRenderRequest) -> AutoRenderResponse:
+    """
+    一键创建草稿：添加视频/字幕/转场 → 保存。
+    本地协作编辑时 wait_export=false；回传草稿后由 upload_draft 在服务端自动导出。
+    """
+    return service.auto_render(body)
+
+
 # 生成视频 - 根据草稿URL，导出视频
 @router.post(path="/gen_video", response_model=GenVideoResponse)
-def gen_video(request: Request, gvr: GenVideoRequest) -> GenVideoResponse:
+def gen_video(gvr: GenVideoRequest) -> GenVideoResponse:
     """
     生成视频 - 根据草稿URL，导出视频
     """
 
     # 调用service层处理业务逻辑
-    message = service.gen_video(
-        draft_url=gvr.draft_url,
-        apiKey=gvr.apiKey
-    )
+    message = service.gen_video(draft_url=gvr.draft_url)
 
     return GenVideoResponse(message=message)
 

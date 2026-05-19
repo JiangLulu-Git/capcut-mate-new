@@ -54,6 +54,8 @@ class CustomError(Enum):
     FILTER_GET_FAILED = (2040, "获取滤镜列表失败", "Get filter list failed")
     EFFECT_GET_FAILED = (2041, "获取特效列表失败", "Get effect list failed")
     DRAFT_LOCK_TIMEOUT = (2042, "草稿锁获取超时，同一时间只允许一个操作", "Draft lock acquisition timeout, only one operation allowed at a time")
+    DRAFT_UPLOAD_INVALID = (2043, "上传的草稿包无效或缺少 draft_content.json", "Invalid uploaded draft package or missing draft_content.json")
+    DRAFT_UPLOAD_TOO_LARGE = (2044, "上传的草稿包超出大小限制", "Uploaded draft package exceeds size limit")
 
     # ===== 系统错误码 (9000-9999) =====
     INTERNAL_SERVER_ERROR = (9998, "系统内部错误", "Internal server error")

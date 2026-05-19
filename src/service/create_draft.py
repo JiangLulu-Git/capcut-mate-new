@@ -52,10 +52,20 @@ def create_draft(width: int, height: int) -> str:
         script.save_path = draft_content_path
         script.save()
         
-        # 添加空的主轨道（仅当没有主轨道时添加）
+        # 模板 default2 已含 main_track（在 imported_tracks）；重复添加会导致导出两条同名轨道，剪映报草稿损坏
         main_track_name = "main_track"
-        script.add_track(track_type=draft.TrackType.video, track_name=main_track_name, relative_index=0)
-        logger.info(f"Added empty main track: {main_track_name}")
+        has_main_track = main_track_name in script.tracks or any(
+            track.name == main_track_name for track in script.imported_tracks
+        )
+        if not has_main_track:
+            script.add_track(
+                track_type=draft.TrackType.video,
+                track_name=main_track_name,
+                relative_index=0,
+            )
+            logger.info(f"Added empty main track: {main_track_name}")
+        else:
+            logger.info(f"Reusing template main track: {main_track_name}")
         
         script.save()
         

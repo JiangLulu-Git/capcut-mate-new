@@ -4,6 +4,12 @@
 module.exports = {
   appId: "com.gogoshine.capcut-mate",
   productName: "剪映小助手",
+  protocols: [
+    {
+      name: "CapCut Mate Draft",
+      schemes: ["capcut-mate"],
+    },
+  ],
   directories: {
     output: "dist"
   },
@@ -23,8 +29,9 @@ module.exports = {
     icon: "assets/icons/logo.ico",
     target: "nsis",
     artifactName: "capcut-mate-windows-x64-installer.exe",
-    // 禁用代码签名
-    signingHashAlgorithms: []
+    // 本地打包勿拉 winCodeSign（Windows 无 symlink 权限时会解压失败）
+    signAndEditExecutable: false,
+    signingHashAlgorithms: [],
   },
   nsis: {
     oneClick: false,

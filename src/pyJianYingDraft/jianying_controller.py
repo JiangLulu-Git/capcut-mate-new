@@ -86,7 +86,7 @@ class JianyingController:
         """初始化剪映控制器, 此时剪映应该处于目录页"""
         self.get_window()
 
-    def find_and_click_draft(self, draft_name: str, max_retries: int = 5, retry_interval: float = 5.0) -> None:
+    def find_and_click_draft(self, draft_name: str, max_retries: int = 12, retry_interval: float = 5.0) -> None:
         """查找并点击指定名称的草稿
         
         Args:
@@ -294,7 +294,7 @@ class JianyingController:
 
     def export_draft(self, draft_name: str, output_path: Optional[str] = None, *,
                      resolution: Optional[ExportResolution] = None,
-                     framerate: Optional[ExportFramerate] = None,
+                     framerate: Optional[ExportFramerate] = ExportFramerate.FR_25,
                      timeout: float = 1200) -> None:
         """导出指定的剪映草稿, **目前仅支持剪映6及以下版本**
 
@@ -304,7 +304,7 @@ class JianyingController:
             draft_name (`str`): 要导出的剪映草稿名称
             output_path (`str`, optional): 导出路径, 支持指向文件夹或直接指向文件, 不指定则使用剪映默认路径.
             resolution (`Export_resolution`, optional): 导出分辨率, 默认不改变剪映导出窗口中的设置.
-            framerate (`Export_framerate`, optional): 导出帧率, 默认不改变剪映导出窗口中的设置.
+            framerate (`Export_framerate`, optional): 导出帧率, 默认为 25fps.
             timeout (`float`, optional): 导出超时时间(秒), 默认为20分钟.
 
         Raises:

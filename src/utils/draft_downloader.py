@@ -6,6 +6,7 @@ import os
 import re
 import json
 import time
+import shutil
 import requests
 from urllib.parse import urlparse, parse_qs
 from typing import Optional, Dict, Any, List
@@ -96,6 +97,102 @@ def extract_draft_id_from_url(url: str) -> Optional[str]:
         return None
 
 
+def patch_draft_meta_info(draft_dir: str, draft_id: Optional[str] = None) -> None:
+    """
+    同步 draft_meta_info.json 与草稿目录及 draft_content，降低剪映「草稿已损坏」误判。
+    """
+    draft_dir = os.path.normpath(draft_dir)
+    draft_id = draft_id or os.path.basename(draft_dir)
+    meta_path = os.path.join(draft_dir, "draft_meta_info.json")
+    if not os.path.isfile(meta_path):
+        return
+
+    duration_us = 0
+    content_path = os.path.join(draft_dir, "draft_content.json")
+    if os.path.isfile(content_path):
+        with open(content_path, "r", encoding="utf-8") as handle:
+            duration_us = int(json.load(handle).get("duration", 0) or 0)
+
+    jianying_root = os.path.dirname(draft_dir)
+    with open(meta_path, "r", encoding="utf-8") as handle:
+        meta = json.load(handle)
+
+    meta["draft_fold_path"] = draft_dir.replace("\\", "/")
+    meta["draft_name"] = draft_id
+    meta["draft_root_path"] = jianying_root
+    meta["tm_duration"] = duration_us
+    cover = meta.get("draft_cover") or ""
+    if cover and not os.path.isfile(os.path.join(draft_dir, cover)):
+        meta["draft_cover"] = ""
+
+    with open(meta_path, "w", encoding="utf-8") as handle:
+        json.dump(meta, handle, ensure_ascii=False, indent=2)
+
+    # 首页列表标题与文件夹名一致，便于自动导出按 draft_id 定位草稿
+    for json_name in ("draft_content.json", "draft_info.json"):
+        json_path = os.path.join(draft_dir, json_name)
+        if not os.path.isfile(json_path):
+            continue
+        with open(json_path, "r", encoding="utf-8") as handle:
+            content = json.load(handle)
+        if content.get("name") != draft_id:
+            content["name"] = draft_id
+            with open(json_path, "w", encoding="utf-8") as handle:
+                json.dump(content, handle, ensure_ascii=False, indent=2)
+
+
+def copy_draft_from_project_output(draft_id: str, target_dir: str) -> bool:
+    """
+    草稿已在本项目 output/draft 下时，直接复制到剪映目录。
+    用于本地开发：get_draft 返回的 DOWNLOAD_URL 默认指向远程，HTTP 逐文件下载会失败。
+    """
+    src_dir = os.path.join(config.DRAFT_DIR, draft_id)
+    if not os.path.isdir(src_dir) or not os.path.isfile(
+        os.path.join(src_dir, "draft_content.json")
+    ):
+        return False
+
+    if os.path.exists(target_dir):
+        try:
+            shutil.rmtree(target_dir)
+        except OSError as exc:
+            logger.warning(
+                "Cannot replace target draft dir (maybe open in Jianying): %s, %s",
+                target_dir,
+                exc,
+            )
+            return False
+
+    try:
+        shutil.copytree(src_dir, target_dir)
+    except OSError as exc:
+        logger.error(f"Local draft copy failed: {exc}")
+        return False
+
+    src_prefix = os.path.normpath(src_dir) + os.sep
+    dst_prefix = os.path.normpath(target_dir) + os.sep
+    remote_prefix = f"/app/output/draft/{draft_id}/"
+    for name in ("draft_content.json", "draft_info.json"):
+        path = os.path.join(target_dir, name)
+        if not os.path.isfile(path):
+            continue
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        data = update_material_paths(data, src_prefix, dst_prefix)
+        data = update_material_paths(
+            data, src_prefix.replace("\\", "/"), dst_prefix.replace("\\", "/")
+        )
+        data = update_material_paths(data, remote_prefix, dst_prefix)
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, ensure_ascii=False, indent=2)
+
+    patch_draft_meta_info(target_dir, draft_id)
+
+    trigger_directory_scan_with_robocopy(target_dir)
+    logger.info("Draft installed from local project output: %s -> %s", src_dir, target_dir)
+    return True
+
+
 def download_draft(draft_url: str, save_path: Optional[str] = None) -> bool:
     """
     下载草稿文件到指定目录
@@ -119,6 +216,9 @@ def download_draft(draft_url: str, save_path: Optional[str] = None) -> bool:
     
     # 构建并创建目标目录
     target_dir = prepare_target_directory(save_path, draft_id)
+
+    if copy_draft_from_project_output(draft_id, target_dir):
+        return True
     
     logger.info(f"Downloading draft {draft_id} to {target_dir}")
     

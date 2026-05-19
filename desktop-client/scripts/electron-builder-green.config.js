@@ -1,12 +1,19 @@
 module.exports = {
   appId: "com.gogoshine.capcutmate",
   productName: "CapCut-Mate",
+  protocols: [
+    {
+      name: "CapCut Mate Draft",
+      schemes: ["capcut-mate"],
+    },
+  ],
   directories: {
     output: "dist"
   },
   win: {
     icon: "assets/icons/logo.ico",
     artifactName: "capcut-mate-windows-x64-green.zip",
+    signAndEditExecutable: false,
   },
   mac: {
     icon: "assets/icons/logo.icns",

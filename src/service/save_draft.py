@@ -7,6 +7,7 @@ import config
 import os
 import asyncio
 from src.utils.draft_lock_manager import DraftLockManager
+from src.utils.draft_downloader import patch_draft_meta_info
 
 
 def save_draft(draft_url: str) -> str:
@@ -32,6 +33,7 @@ def save_draft(draft_url: str) -> str:
 
     # 保存草稿
     script.save()
+    patch_draft_meta_info(os.path.join(config.DRAFT_DIR, draft_id), draft_id)
 
     logger.info(f"save draft success: %s", os.path.join(config.DRAFT_DIR, draft_id))
     return draft_url

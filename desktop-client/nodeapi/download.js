@@ -6,6 +6,7 @@ const fs = require("fs").promises; // 使用 fs.promises 进行异步文件操�
 const logger = require("./logger");
 const { detectJianyingDraftRoot } = require("./draftPathDetect");
 const { v4: uuidv4 } = require('uuid');
+const { startDraftAutoSync } = require('./draftAutoSync');
 
 const RECORD_MAX = 500;
 
@@ -313,6 +314,13 @@ async function writeConfig(config) {
     logger.error("写入配置文件失败:", error);
     return false;
   }
+}
+
+async function saveAppConfig(partial) {
+  const config = await readConfig();
+  const next = { ...config, ...partial };
+  await writeConfig(next);
+  return next;
 }
 
 /**
@@ -947,7 +955,7 @@ async function downloadFileWithRetry(config, parentWindow, fileIndex) {
 
 // 批量下载文件主函数
 async function downloadFiles(
-  { sourceUrl, remoteFileUrls, targetId, isOpenDir },
+  { sourceUrl, remoteFileUrls, targetId, openJianying, isOpenDir },
   parentWindow
 ) {
   try {
@@ -1046,7 +1054,22 @@ async function downloadFiles(
     // 触发剪映目录扫描，使剪映无需重启即可识别新草稿
     await triggerDirectoryScan(jointPath);
 
-    if (isOpenDir) await openDraftDirectory(jointPath);
+    // 协议下载走 openJianying；手动下载页可仍打开文件夹
+    if (isOpenDir && !openJianying) {
+      await openDraftDirectory(jointPath);
+    }
+
+    const appConfig = await readConfig();
+    if (appConfig.autoUploadEnabled === true && failureCount === 0) {
+      startDraftAutoSync({
+        draftId: targetId,
+        draftDir: jointPath,
+        draftUrl: sourceUrl,
+        idleSeconds: appConfig.autoUploadIdleSeconds ?? 45,
+        serverApiBase: appConfig.serverApiBase,
+        onLog: (entry) => appendDownloadLog(entry, parentWindow),
+      });
+    }
     
     return {
       success: true,
@@ -1089,6 +1112,7 @@ module.exports = {
   updateDraftPath,
 
   readConfig,
+  saveAppConfig,
   ensureAutoDetectedDraftPathInConfig,
 
   getDraftUrls,

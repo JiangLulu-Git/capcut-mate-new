@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // 保存文件
     saveFile: (data) => ipcRenderer.invoke('save-file', data),
 
+    downloadDraftUrl: (draftUrl) => ipcRenderer.invoke('download-draft-url', draftUrl),
+
     getUrlJsonData: (url) => ipcRenderer.invoke('get-url-json-data', url),
 
     getDownloadLog: () => ipcRenderer.invoke('get-download-log'),
@@ -21,6 +23,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
         });
     },
 
+    onDraftDownloadFinished: (callback) => {
+        ipcRenderer.on('draft-download-finished', (event, payload) => {
+            callback(payload);
+        });
+    },
+
     // 清理监听器，避免内存泄漏
     removeAllFileOperationLogListeners: () => {
         ipcRenderer.removeAllListeners('file-operation-log');
@@ -29,14 +37,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // 显示消息框
     showMessageBox: (options) => ipcRenderer.invoke('show-message-box', options),
     
-    // 清空默认草稿路径
-    clearDefaultDraftPath: () => ipcRenderer.invoke('clear-default-draft-path'),
-    
     // 在默认浏览器中打开URL
     openExternalUrl: (url) => ipcRenderer.invoke('open-external-url', url),
     
     // 获取草稿保存路径
     getConfigData: () => ipcRenderer.invoke('get-config-data'),
+
+    saveAppConfig: (partial) => ipcRenderer.invoke('save-app-config', partial),
     
     // 设置草稿保存路径
     updateDraftPath: () => ipcRenderer.invoke('update-draft-path'),
