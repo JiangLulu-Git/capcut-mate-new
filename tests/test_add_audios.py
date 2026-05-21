@@ -1,4 +1,5 @@
 import requests
+from tests.api_helpers import unwrap_test_response
 import json
 import time
 
@@ -21,7 +22,7 @@ def test_add_audios():
             print(create_response.text)
             return
             
-        draft_url = create_response.json()["draft_url"]
+        draft_url = unwrap_test_response(create_response)["draft_url"]
         print(f"Draft created successfully: {draft_url}")
         
         # 2. 添加音频
@@ -46,7 +47,7 @@ def test_add_audios():
         add_response = requests.post(add_audios_url, json=add_audios_data)
         
         if add_response.status_code == 200:
-            result = add_response.json()
+            result = unwrap_test_response(add_response)
             print(f"Audios added successfully!")
             print(f"Track ID: {result['track_id']}")
             print(f"Audio IDs: {result['audio_ids']}")

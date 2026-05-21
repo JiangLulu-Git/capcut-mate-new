@@ -27,13 +27,19 @@ from .draft_folder import DraftFolder
 ISWIN = (sys.platform == 'win32')
 if ISWIN:
     try:
-        from .jianying_controller import JianyingController, ExportResolution, ExportFramerate
+        from .jianying_controller import (
+            JianyingController,
+            ExportCodec,
+            ExportFramerate,
+            ExportResolution,
+        )
     except ImportError:
         # 如果缺少Windows依赖，设置为False
         ISWIN = False
         JianyingController = None
-        ExportResolution = None  
+        ExportResolution = None
         ExportFramerate = None
+        ExportCodec = None
 
 from .time_util import SEC, tim, trange
 
@@ -278,6 +284,7 @@ if ISWIN:
         "JianyingController",
         "ExportResolution",
         "ExportFramerate",
+        "ExportCodec",
         "Jianying_controller",
         "Export_resolution",
         "Export_framerate",

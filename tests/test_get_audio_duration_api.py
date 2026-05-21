@@ -2,6 +2,7 @@
 测试 get_audio_duration 接口的完整性
 """
 import requests
+from tests.api_helpers import unwrap_test_response
 import json
 
 def test_get_audio_duration_api():
@@ -33,7 +34,7 @@ def test_get_audio_duration_api():
         print(f"📄 响应头: {dict(response.headers)}")
         
         if response.status_code == 200:
-            result = response.json()
+            result = unwrap_test_response(response)
             print(f"✅ 请求成功！")
             print(f"📋 响应数据: {json.dumps(result, indent=2)}")
             

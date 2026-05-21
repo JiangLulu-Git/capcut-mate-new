@@ -88,9 +88,14 @@ class AutoRenderRequest(BaseModel):
 
     captions: List[CaptionInput] = Field(default_factory=list, description="字幕列表，可为空")
 
-    width: int = Field(default=1920, ge=1, description="画布宽")
+    use_source_canvas: bool = Field(
+        default=True,
+        description="画布宽高跟随第一段源视频；为 false 时使用 width/height",
+    )
 
-    height: int = Field(default=1080, ge=1, description="画布高")
+    width: int = Field(default=1920, ge=1, description="画布宽（use_source_canvas=false 时生效）")
+
+    height: int = Field(default=1080, ge=1, description="画布高（use_source_canvas=false 时生效）")
 
     default_transition: Optional[str] = Field(
 
@@ -106,7 +111,10 @@ class AutoRenderRequest(BaseModel):
 
         ge=0,
 
-        description="默认转场时长（微秒），默认 1 秒",
+        description=(
+            "默认转场时长（微秒），默认 1 秒；"
+            "时间轴重叠提前量与此值相同（例如 3_000_000 即提前 3 秒）"
+        ),
 
     )
 
@@ -114,7 +122,21 @@ class AutoRenderRequest(BaseModel):
 
         default=False,
 
-        description="是否提交 gen_video 并等待导出完成；本地协作编辑应设为 false",
+        description="是否在建草稿后提交 gen_video 导出；本地协作编辑可设为 false",
+
+    )
+
+    async_mode: bool = Field(
+
+        default=True,
+
+        description=(
+
+            "true（默认）：立即返回 task_id，后台建草稿/导出，用 auto_render_status 查询；"
+
+            "false：同步阻塞至完成（兼容旧客户端，wait_export=true 时会一直等到导出结束）"
+
+        ),
 
     )
 
@@ -134,16 +156,47 @@ class AutoRenderRequest(BaseModel):
 
     font_size: int = Field(default=15, ge=1, description="字幕默认字号")
 
+    caption_bottom_margin_px: int = Field(
+        default=10,
+        ge=0,
+        description="字幕距画布底边距（像素），默认 10；课堂视频风格底部居中",
+    )
+
+    caption_transform_y: Optional[float] = Field(
+        default=None,
+        description=(
+            "字幕垂直位移（像素，以画布中心为原点，正值向下）；"
+            "留空则按 caption_bottom_margin_px 与 font_size 自动计算"
+        ),
+    )
+
+    validate_caption_timeline: bool = Field(
+        default=True,
+        description=(
+            "有 captions 时校验：首条 start=0、末条 end=成片总时长、"
+            "各条首尾相接且字幕总时长等于成片时长（微秒）"
+        ),
+    )
+
+
+class AutoRenderStatusRequest(BaseModel):
+
+    """查询 auto_render 异步任务状态。"""
+
+    task_id: str = Field(..., min_length=8, description="auto_render 返回的 task_id")
+
 
 class AutoRenderResponse(BaseModel):
+    """自动化成片业务数据（HTTP 由中间件包入 data 字段）。"""
 
-    """自动化成片响应。"""
+    task_id: str = Field(
+        default="",
+        description="异步任务 ID（async_mode=true 时用于 auto_render_status 查询）",
+    )
 
+    draft_id: str = Field(default="", description="草稿 ID（建草稿完成后才有）")
 
-
-    draft_id: str = Field(..., description="草稿 ID")
-
-    draft_url: str = Field(..., description="草稿 URL")
+    draft_url: str = Field(default="", description="草稿 URL（建草稿完成后才有）")
 
     export_status: str = Field(
 
@@ -160,5 +213,11 @@ class AutoRenderResponse(BaseModel):
     error_message: str = Field(default="", description="失败原因")
 
     message: str = Field(default="", description="摘要说明")
+
+    timeline_duration_us: int = Field(
+        default=0,
+        ge=0,
+        description="成片时间轴总时长（微秒）；建草稿完成后有值",
+    )
 
 

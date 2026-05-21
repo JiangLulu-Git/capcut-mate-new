@@ -12,11 +12,12 @@ from .add_text_style import add_text_style
 from .get_text_animations import get_text_animations
 from .get_image_animations import get_image_animations
 from .get_filters import get_filters
+from .get_transitions import get_transitions
 from .get_effects import get_effects
 from .easy_create_material import easy_create_material, easy_create_material_async
 from .save_draft import save_draft, save_draft_async
 from .gen_video import gen_video, gen_video_status, get_gen_video_active_count
-from .auto_render import auto_render
+from .auto_render import auto_render, auto_render_status, auto_render_sync
 from .get_draft import get_draft
 from .prepare_local_edit import prepare_local_edit, client_setup
 from .upload_draft import upload_draft_async
@@ -36,4 +37,4 @@ from .str_list_to_objs import str_list_to_objs
 from .str_to_list import str_to_list
 from .objs_to_str_list import objs_to_str_list
 
-__all__ = ["auto_render", "create_draft", "prepare_local_edit", "client_setup", "upload_draft_async", "add_videos", "add_audios", "add_images", "add_sticker", "add_keyframes", "add_captions", "add_effects", "add_filters", "add_masks", "add_text_style", "get_text_animations", "get_image_animations", "get_filters", "get_effects", "easy_create_material", "save_draft", "gen_video", "gen_video_status", "get_gen_video_active_count", "get_draft", "get_audio_duration", "timelines", "audio_timelines", "audio_infos", "imgs_infos", "caption_infos", "effect_infos", "filter_infos", "keyframes_infos", "video_infos", "search_sticker", "get_url", "str_list_to_objs", "str_to_list", "objs_to_str_list", "add_videos_async", "add_audios_async", "add_images_async", "add_sticker_async", "add_keyframes_async", "add_captions_async", "add_effects_async", "add_filters_async", "add_masks_async", "easy_create_material_async", "save_draft_async"]
+__all__ = ["auto_render", "auto_render_status", "auto_render_sync", "create_draft", "prepare_local_edit", "client_setup", "upload_draft_async", "add_videos", "add_audios", "add_images", "add_sticker", "add_keyframes", "add_captions", "add_effects", "add_filters", "add_masks", "add_text_style", "get_text_animations", "get_image_animations", "get_filters", "get_transitions", "get_effects", "easy_create_material", "save_draft", "gen_video", "gen_video_status", "get_gen_video_active_count", "get_draft", "get_audio_duration", "timelines", "audio_timelines", "audio_infos", "imgs_infos", "caption_infos", "effect_infos", "filter_infos", "keyframes_infos", "video_infos", "search_sticker", "get_url", "str_list_to_objs", "str_to_list", "objs_to_str_list", "add_videos_async", "add_audios_async", "add_images_async", "add_sticker_async", "add_keyframes_async", "add_captions_async", "add_effects_async", "add_filters_async", "add_masks_async", "easy_create_material_async", "save_draft_async"]

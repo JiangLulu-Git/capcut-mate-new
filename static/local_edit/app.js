@@ -8,7 +8,7 @@
 
 const DEMO_VIDEOS =
 
-  "https://sf1-cdn-tos.huoshanstatic.com/obj/media-fe/xgplayer_doc_video/mp4/xgplayer-demo-360p.mp4";
+  "https://teststatic.xuesee.net/sfs/coursedesignpc/qq.mp4";
 
 
 
@@ -43,15 +43,19 @@ function apiV1() {
 
 function unwrap(json) {
 
-  if (json.code !== undefined && json.code !== 0) {
+  if (json.code !== undefined && json.code !== 1) {
 
     throw new Error(json.message || `错误码 ${json.code}`);
 
   }
 
-  const { code, message, ...rest } = json;
+  if (json.data !== undefined && json.data !== null) {
 
-  return rest;
+    return json.data;
+
+  }
+
+  return json;
 
 }
 
@@ -130,36 +134,6 @@ function updateRecord(draftId, patch) {
     saveRecords(records);
 
   }
-
-}
-
-
-
-function parseCaptions(text) {
-
-  return text
-
-    .split("\n")
-
-    .map((l) => l.trim())
-
-    .filter(Boolean)
-
-    .map((line) => {
-
-      const [textPart, startSec, endSec] = line.split("|").map((s) => s.trim());
-
-      return {
-
-        text: textPart || line,
-
-        start: Math.round(parseFloat(startSec || "0") * 1e6),
-
-        end: Math.round(parseFloat(endSec || "3") * 1e6),
-
-      };
-
-    });
 
 }
 
@@ -673,19 +647,11 @@ $("btnCreate").addEventListener("click", async () => {
 
 
 
-    const capText = $("captions").value.trim();
-
-    const captions = capText ? parseCaptions(capText) : [];
-
-
-
     log("正在创建草稿…");
 
     const data = await apiPost("/auto_render", {
 
       videos,
-
-      captions,
 
       wait_export: false,
 

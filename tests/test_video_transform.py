@@ -2,6 +2,7 @@ import sys
 import os
 import json
 import requests
+from tests.api_helpers import unwrap_test_response
 
 # 添加项目根目录到 Python 路径
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -25,7 +26,7 @@ def test_video_transform():
             print(create_response.text)
             return
             
-        draft_url = create_response.json()["draft_url"]
+        draft_url = unwrap_test_response(create_response)["draft_url"]
         print(f"Draft created successfully: {draft_url}")
         
         # 2. 添加带位置变换的视频
@@ -52,7 +53,7 @@ def test_video_transform():
         add_response = requests.post(add_videos_url, json=add_videos_data)
         
         if add_response.status_code == 200:
-            result = add_response.json()
+            result = unwrap_test_response(add_response)
             print(f"Videos added successfully!")
             print(f"Track ID: {result['track_id']}")
             print(f"Video IDs: {result['video_ids']}")

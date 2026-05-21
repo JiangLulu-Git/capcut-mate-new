@@ -68,6 +68,25 @@ class BaseTrack(ABC):
     @abstractmethod
     def export_json(self) -> Dict[str, Any]: ...
 
+def _is_jianying_overlap_transition(existing: BaseSegment, new: BaseSegment) -> bool:
+    """前一段带 is_overlap 转场时，下一段从 prev.end - T 开始，与剪映客户端一致。"""
+    if not isinstance(existing, VideoSegment) or not isinstance(new, VideoSegment):
+        return False
+    tr = existing.transition
+    if tr is None or not tr.is_overlap:
+        return False
+    overlap_us = tr.duration
+    if overlap_us <= 0:
+        return False
+    prev = existing.target_timerange
+    nxt = new.target_timerange
+    return (
+        nxt.start >= prev.end - overlap_us
+        and nxt.start < prev.end
+        and nxt.end > prev.start
+    )
+
+
 Seg_type = TypeVar("Seg_type", bound=BaseSegment)
 class Track(BaseTrack, Generic[Seg_type]):
     """非模板模式下的轨道"""
@@ -112,9 +131,11 @@ class Track(BaseTrack, Generic[Seg_type]):
         if not isinstance(segment, self.accept_segment_type):
             raise TypeError("New segment (%s) is not of the same type as the track (%s)" % (type(segment), self.accept_segment_type))
 
-        # 检查片段是否重叠
+        # 检查片段是否重叠（剪映手动加重叠转场时，下一段会提前开始，允许该模式）
         for seg in self.segments:
             if seg.overlaps(segment):
+                if _is_jianying_overlap_transition(seg, segment):
+                    continue
                 raise SegmentOverlap("New segment overlaps with existing segment [start: {}, end: {}]"
                                      .format(segment.target_timerange.start, segment.target_timerange.end))
 

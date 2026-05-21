@@ -286,7 +286,7 @@ def _add_videos_internal(
             video['start'] = current_track_end
             video['end'] = video['start'] + original_duration
             logger.info(f"Adjusted video {i} start time to {video['start']} for continuity, original_duration: {original_duration}")
-        
+
         segment_id, segment_info, actual_duration = add_video_to_draft(
 		                              script, track_name, draft_video_dir=draft_video_dir, video=video,
                                       scene_timeline=scene_timeline,
@@ -354,7 +354,12 @@ def add_video_to_draft(
     scale_x: float = 1.0, 
     scale_y: float = 1.0, 
     transform_x: int = 0, 
-    transform_y: int = 0
+    transform_y: int = 0,
+    *,
+    timeline_start: Optional[int] = None,
+    timeline_end: Optional[int] = None,
+    source_start_us: int = 0,
+    apply_transition: bool = True,
     ) -> Tuple[str, SegmentInfo, int]:
     """
     向剪映草稿中添加视频
@@ -418,7 +423,14 @@ def add_video_to_draft(
         )
         
         # 5. 计算在时间轴上的显示时长（source duration）
-        display_duration = video['end'] - video['start']
+        seg_start = int(timeline_start if timeline_start is not None else video["start"])
+        seg_end = int(timeline_end if timeline_end is not None else video["end"])
+        display_duration = seg_end - seg_start
+        if display_duration <= 0:
+            raise CustomException(
+                CustomError.VIDEO_ADD_FAILED,
+                f"Invalid segment duration: start={seg_start} end={seg_end}",
+            )
         
         # 5.5 计算变速（如果提供了场景时间线）
         speed = 1.0
@@ -435,18 +447,36 @@ def add_video_to_draft(
         # 6. 创建视频片段
         # 用户传入 volume 范围为 [0, 10]，剪映内部范围为 [0, 10]
         raw_volume = video.get('volume', 1.0)
+        source_len = min(
+            max(0, video_material.duration - source_start_us),
+            display_duration if speed == 1.0 else round(display_duration * speed),
+        )
+        if source_len <= 0:
+            raise CustomException(
+                CustomError.VIDEO_ADD_FAILED,
+                f"Source range empty: offset={source_start_us} material={video_material.duration}",
+            )
+
         video_segment = draft.VideoSegment(
             material=video_material, 
-            target_timerange=trange(start=video['start'], duration=display_duration),
-            source_timerange=trange(start=0, duration=min(video_material.duration, display_duration)),
+            target_timerange=trange(start=seg_start, duration=display_duration),
+            source_timerange=trange(start=source_start_us, duration=source_len),
             speed=speed,  # 使用计算出的速度
             volume=raw_volume,
             clip_settings=clip_settings
         )
-        logger.info(f"video_path: {video_path}, start: {video['start']}, target_duration: {target_duration}, display_duration: {display_duration}, speed: {speed}, raw_volume: {raw_volume}")
+        logger.info(
+            "video_path: %s, seg_start: %s, display_duration: %s, source_start: %s, source_len: %s, speed: %s",
+            video_path,
+            seg_start,
+            display_duration,
+            source_start_us,
+            source_len,
+            speed,
+        )
 
         # 6. 添加转场效果（如果指定了）
-        transition_name = video.get('transition')
+        transition_name = video.get('transition') if apply_transition else None
         if transition_name:
             transition_type = find_transition_type_by_name(transition_name)
             if transition_type:
@@ -464,8 +494,8 @@ def add_video_to_draft(
 
         segment_info = SegmentInfo(
             id=video_segment.segment_id,
-            start=video['start'],
-            end=video['end'],
+            start=seg_start,
+            end=seg_end,
         )
 
         return video_segment.segment_id, segment_info, actual_duration

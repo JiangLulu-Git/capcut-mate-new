@@ -33,7 +33,12 @@ from src.schemas.get_image_animations import GetImageAnimationsRequest, GetImage
 from src.schemas.easy_create_material import EasyCreateMaterialRequest, EasyCreateMaterialResponse
 from src.schemas.save_draft import SaveDraftRequest, SaveDraftResponse
 from src.schemas.gen_video import GenVideoRequest, GenVideoResponse
-from src.schemas.auto_render import AutoRenderRequest, AutoRenderResponse
+from src.schemas.auto_render import (
+    AutoRenderRequest,
+    AutoRenderResponse,
+    AutoRenderStatusRequest,
+)
+from src.schemas.get_transitions import GetTransitionsRequest, GetTransitionsResponse
 from src.schemas.gen_video_status import GenVideoStatusRequest, GenVideoStatusResponse
 from src.schemas.gen_video_active_count import GenVideoActiveCountResponse
 from src.schemas.get_draft import GetDraftRequest, GetDraftResponse
@@ -423,6 +428,20 @@ def get_filters(gfr: GetFiltersRequest) -> GetFiltersResponse:
         filters=filters
     )
 
+@router.post(path="/get_transitions", response_model=GetTransitionsResponse)
+def get_transitions(gtr: GetTransitionsRequest) -> GetTransitionsResponse:
+    """
+    获取转场效果列表 (v1 版本)
+    """
+
+    transitions = service.get_transitions(
+        mode=gtr.mode
+    )
+
+    return GetTransitionsResponse(
+        transitions=transitions
+    )
+
 @router.post(path="/get_text_effects", response_model=GetTextEffectsResponse)
 def get_text_effects(gter: GetTextEffectsRequest) -> GetTextEffectsResponse:
     """
@@ -505,12 +524,24 @@ async def upload_draft_endpoint(
 
 
 @router.post(path="/auto_render", response_model=AutoRenderResponse)
-def auto_render_endpoint(body: AutoRenderRequest) -> AutoRenderResponse:
+async def auto_render_endpoint(body: AutoRenderRequest) -> AutoRenderResponse:
     """
-    一键创建草稿：添加视频/字幕/转场 → 保存。
-    本地协作编辑时 wait_export=false；回传草稿后由 upload_draft 在服务端自动导出。
+    一键创建草稿：添加视频/字幕/转场 → 保存；可选导出。
+
+    默认 async_mode=true：立即返回 task_id，请轮询 auto_render_status。
+    本地协作编辑：wait_export=false；回传草稿后由 upload_draft 自动导出。
     """
-    return service.auto_render(body)
+    import asyncio
+
+    if body.async_mode:
+        return service.auto_render(body)
+    return await asyncio.to_thread(service.auto_render_sync, body)
+
+
+@router.post(path="/auto_render_status", response_model=AutoRenderResponse)
+def auto_render_status_endpoint(body: AutoRenderStatusRequest) -> AutoRenderResponse:
+    """查询 auto_render 异步任务进度（建草稿 + gen_video 导出）。"""
+    return service.auto_render_status(body.task_id)
 
 
 # 生成视频 - 根据草稿URL，导出视频

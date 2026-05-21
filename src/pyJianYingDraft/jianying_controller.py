@@ -44,6 +44,12 @@ class ExportFramerate(Enum):
     FR_50 = "50fps"
     FR_60 = "60fps"
 
+
+class ExportCodec(Enum):
+    """导出视频编码（剪映导出面板选项文案，因版本而异可配置 EXPORT_CODEC_UI_LABELS）"""
+    HEVC = "hevc"
+    H264 = "h264"
+
 class ControlFinder:
     """控件查找器，封装部分与控件查找相关的逻辑"""
 
@@ -212,6 +218,70 @@ class JianyingController:
             framerate_item.Click(simulateMove=False)
             time.sleep(0.5)
 
+    def set_export_codec(
+        self,
+        codec: Optional[ExportCodec],
+        *,
+        ui_labels: Optional[list[str]] = None,
+    ) -> None:
+        """设置导出编码（如 H.265 / HEVC）。未找到控件或选项时仅告警，不中断导出。"""
+        if codec is None:
+            return
+        labels = ui_labels or []
+        if not labels:
+            if codec == ExportCodec.HEVC:
+                labels = ["H.265", "HEVC", "H265", "高效", "hevc"]
+            else:
+                labels = ["H.264", "H264", "AVC", "h264"]
+
+        setting_group = self.app.GroupControl(
+            searchDepth=1,
+            Compare=ControlFinder.class_name_matcher("PanelSettingsGroup_QMLTYPE"),
+        )
+        if not setting_group.Exists(0):
+            logger.warning("未找到导出设置组，跳过编码设置")
+            return
+
+        input_descs = (
+            "ExportCodecInput",
+            "VideoCodecInput",
+            "CodecInput",
+            "ExportEncoderInput",
+            "ExportFormatInput",
+        )
+        codec_btn = None
+        for desc in input_descs:
+            codec_btn = setting_group.TextControl(
+                searchDepth=2, Compare=ControlFinder.desc_matcher(desc)
+            )
+            if codec_btn.Exists(0.5):
+                break
+        if codec_btn is None or not codec_btn.Exists(0):
+            logger.warning(
+                "未找到导出编码下拉框（尝试过 %s），跳过编码设置",
+                ", ".join(input_descs),
+            )
+            return
+
+        codec_btn.Click(simulateMove=False)
+        time.sleep(0.5)
+        for label in labels:
+            if not label.strip():
+                continue
+            item = self.app.TextControl(
+                searchDepth=2, Compare=ControlFinder.desc_matcher(label.strip())
+            )
+            if item.Exists(0.5):
+                item.Click(simulateMove=False)
+                time.sleep(0.5)
+                logger.info("Export codec set to %s (UI label=%s)", codec.value, label)
+                return
+        logger.warning(
+            "未在导出面板找到编码选项 %s（已尝试: %s）",
+            codec.value,
+            labels,
+        )
+
     def click_final_export_button(self) -> None:
         """点击导出窗口的最终导出按钮
         
@@ -295,6 +365,8 @@ class JianyingController:
     def export_draft(self, draft_name: str, output_path: Optional[str] = None, *,
                      resolution: Optional[ExportResolution] = None,
                      framerate: Optional[ExportFramerate] = ExportFramerate.FR_25,
+                     codec: Optional[ExportCodec] = None,
+                     codec_ui_labels: Optional[list[str]] = None,
                      timeout: float = 1200) -> None:
         """导出指定的剪映草稿, **目前仅支持剪映6及以下版本**
 
@@ -305,6 +377,8 @@ class JianyingController:
             output_path (`str`, optional): 导出路径, 支持指向文件夹或直接指向文件, 不指定则使用剪映默认路径.
             resolution (`Export_resolution`, optional): 导出分辨率, 默认不改变剪映导出窗口中的设置.
             framerate (`Export_framerate`, optional): 导出帧率, 默认为 25fps.
+            codec (`ExportCodec`, optional): 导出编码（如 HEVC/H.265）.
+            codec_ui_labels (`list[str]`, optional): 剪映面板中编码项的显示文案，按顺序尝试点击.
             timeout (`float`, optional): 导出超时时间(秒), 默认为20分钟.
 
         Raises:
@@ -335,9 +409,9 @@ class JianyingController:
                     # 获取原始导出路径
                     original_path = self.get_original_export_path()
                     # 设置分辨率（如果指定）
-                    self.set_export_resolution(resolution)                    
-                    # 设置帧率（如果指定）
-                    self.set_export_framerate(framerate)                    
+                    self.set_export_resolution(resolution)
+                    self.set_export_framerate(framerate)
+                    self.set_export_codec(codec, ui_labels=codec_ui_labels)
                     # 点击最终导出按钮
                     self.click_final_export_button()
                     # 获取窗口状态

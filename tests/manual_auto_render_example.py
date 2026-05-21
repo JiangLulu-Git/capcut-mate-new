@@ -6,6 +6,9 @@
 
 完整流程（需剪映在首页、main.py 已启动且 ENABLE_APIKEY=false）:
   python tests/manual_auto_render_example.py --wait-export
+
+叠化 5 秒、无字幕:
+  python tests/manual_auto_render_example.py --wait-export --transition 叠化 --transition-duration-sec 5 --no-captions
 """
 from __future__ import annotations
 
@@ -20,12 +23,10 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from src.schemas.auto_render import AutoRenderRequest, CaptionInput, VideoClipInput
-from src.service.auto_render import auto_render
+from src.service.auto_render import auto_render, compute_timeline_duration_us
+from src.utils.video_probe import resolve_workflow_fps
 
-DEMO_VIDEO = (
-    "https://sf1-cdn-tos.huoshanstatic.com/obj/media-fe/"
-    "xgplayer_doc_video/mp4/xgplayer-demo-360p.mp4"
-)
+DEMO_VIDEO = "https://teststatic.xuesee.net/sfs/coursedesignpc/qq.mp4"
 
 
 def main() -> int:
@@ -42,36 +43,58 @@ def main() -> int:
     )
     parser.add_argument(
         "--transition",
-        default="3D空间",
+        default="叠化",
         help="段间转场名称（多段视频时生效）",
+    )
+    parser.add_argument(
+        "--transition-duration-sec",
+        type=float,
+        default=1.0,
+        help="转场时长（秒），例如 5 表示叠化 5 秒",
+    )
+    parser.add_argument(
+        "--no-captions",
+        action="store_true",
+        help="不添加字幕，仅测视频与转场",
     )
     args = parser.parse_args()
 
-    # 示例：两段相同视频 + 字幕 + 转场（探测原片全长后时间轴首尾相接）
-    req = AutoRenderRequest(
+    transition_us = int(round(args.transition_duration_sec * 1_000_000))
+    video_urls = [args.video_url, args.video_url]
+    workflow_fps = resolve_workflow_fps(video_urls)
+
+    req_without_captions = AutoRenderRequest(
         videos=[
-            VideoClipInput(video_url=args.video_url, use_full_duration=True),
-            VideoClipInput(video_url=args.video_url, use_full_duration=True),
+            VideoClipInput(video_url=u, use_full_duration=True) for u in video_urls
         ],
-        captions=[
-            CaptionInput(text="第一段字幕", start=0, end=3_000_000),
-            CaptionInput(
-                text="第二段字幕",
-                start=90_000_000,
-                end=93_000_000,
-                in_animation="渐显",
-                in_animation_duration=500_000,
-            ),
-        ],
+        captions=[],
         default_transition=args.transition,
-        default_transition_duration=1_500_000,
+        default_transition_duration=transition_us,
         wait_export=args.wait_export,
         api_base_url="http://127.0.0.1:30000",
     )
 
+    captions: list[CaptionInput] = []
+    if not args.no_captions:
+        timeline_us = compute_timeline_duration_us(req_without_captions, workflow_fps)
+        mid = timeline_us // 2
+        captions = [
+            CaptionInput(text="第一段字幕", start=0, end=mid),
+            CaptionInput(
+                text="第二段字幕",
+                start=mid,
+                end=timeline_us,
+                in_animation="渐显",
+                in_animation_duration=500_000,
+            ),
+        ]
+
+    req = req_without_captions.model_copy(update={"captions": captions})
+
     result = auto_render(req)
     print("draft_id:", result.draft_id)
     print("draft_url:", result.draft_url)
+    print("timeline_duration_us:", result.timeline_duration_us)
     print("export:", result.export_status, result.progress)
     print("video_url:", result.video_url)
     print("message:", result.message)

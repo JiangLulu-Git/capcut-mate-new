@@ -9,6 +9,8 @@ from src.router import v1_router
 from src.utils.draft_downloader import download_draft
 from src.utils.logger import logger
 from src.middlewares import PrepareMiddleware, ResponseMiddleware, TraceContextMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
 
 
 @asynccontextmanager
@@ -38,7 +40,20 @@ _output_dir = os.path.join(config.PROJECT_ROOT, "output")
 if os.path.isdir(_output_dir):
     app.mount("/output", StaticFiles(directory=_output_dir), name="draft_output")
 
+class OutputVideoHeadersMiddleware(BaseHTTPMiddleware):
+    """成片 MP4：缓存 + Range 边下边播（不依赖 ffmpeg faststart）。"""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        path = request.url.path
+        if path.startswith("/output/") and path.lower().endswith(".mp4"):
+            response.headers.setdefault("Accept-Ranges", "bytes")
+            response.headers.setdefault("Cache-Control", "public, max-age=86400")
+        return response
+
+
 # 3. 添加中间件（最后注册的 TraceContextMiddleware 最先处理请求，用于 W3C trace_id）
+app.add_middleware(middleware_class=OutputVideoHeadersMiddleware)
 app.add_middleware(middleware_class=PrepareMiddleware)
 app.add_middleware(middleware_class=ResponseMiddleware)
 app.add_middleware(middleware_class=TraceContextMiddleware)
@@ -56,6 +71,7 @@ for r in app.routes:
 logger.info("CapCut Mate API")
 logger.info("DRAFT_SAVE_PATH=%s", config.DRAFT_SAVE_PATH)
 logger.info("协作编辑演示页: /demo/")
+logger.info("成片直链（边下边播）: /output/draft/*.mp4")
 
 # 5. 启动
 if __name__ == "__main__":

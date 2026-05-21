@@ -6,28 +6,10 @@ import config
 import os
 
 def gen_download_url(file_path: str) -> str:
-    """
-    生成下载URL，将文件路径中的/app/替换成DOWNLOAD_URL
-    
-    Args:
-        file_path: 文件路径
-    
-    Returns:
-        download_url: 下载URL
-    """
-    try:
-        relative_path = os.path.relpath(file_path, config.PROJECT_ROOT)
-    except ValueError:
-        # 如果路径不在同一驱动器等情况
-        relative_path = file_path
+    """生成调用方可下载的 HTTP URL（见 src.utils.media_url）。"""
+    from src.utils.media_url import to_public_download_url
 
-    # 将系统路径分隔符转换为URL的正斜杠
-    relative_path = relative_path.replace(os.sep, "/")
-    
-    # 拼接URL
-    base_url = config.DOWNLOAD_URL.rstrip("/")
-    download_url = f"{base_url}/{relative_path}"
-    return download_url
+    return to_public_download_url(file_path)
 
 def batch_gen_download_url(file_paths: List[str]) -> List[str]:
     """

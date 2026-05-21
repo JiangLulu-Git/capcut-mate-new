@@ -93,7 +93,7 @@ async function uploadDraftZip({ apiBase, draftId, zipPath }) {
   } catch {
     data = { raw: text };
   }
-  if (!response.ok || (data?.code !== undefined && data.code !== 0)) {
+  if (!response.ok || (data?.code !== undefined && data.code !== 1)) {
     const msg = data?.message || data?.detail || text || response.statusText;
     throw new Error(`upload_draft HTTP ${response.status}: ${msg}`);
   }

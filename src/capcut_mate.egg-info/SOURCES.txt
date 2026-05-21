@@ -62,7 +62,9 @@ src/schemas/add_text_style.py
 src/schemas/add_videos.py
 src/schemas/audio_infos.py
 src/schemas/audio_timelines.py
+src/schemas/auto_render.py
 src/schemas/caption_infos.py
+src/schemas/client_setup.py
 src/schemas/create_draft.py
 src/schemas/easy_create_material.py
 src/schemas/effect_infos.py
@@ -81,11 +83,13 @@ src/schemas/get_url.py
 src/schemas/imgs_infos.py
 src/schemas/keyframes_infos.py
 src/schemas/objs_to_str_list.py
+src/schemas/prepare_local_edit.py
 src/schemas/save_draft.py
 src/schemas/search_sticker.py
 src/schemas/str_list_to_objs.py
 src/schemas/str_to_list.py
 src/schemas/timelines.py
+src/schemas/upload_draft.py
 src/schemas/video_infos.py
 src/service/__init__.py
 src/service/add_audios.py
@@ -100,6 +104,7 @@ src/service/add_text_style.py
 src/service/add_videos.py
 src/service/audio_infos.py
 src/service/audio_timelines.py
+src/service/auto_render.py
 src/service/caption_infos.py
 src/service/create_draft.py
 src/service/easy_create_material.py
@@ -117,12 +122,14 @@ src/service/get_url.py
 src/service/imgs_infos.py
 src/service/keyframes_infos.py
 src/service/objs_to_str_list.py
+src/service/prepare_local_edit.py
 src/service/save_draft.py
 src/service/search_sticker.py
 src/service/str_list_to_objs.py
 src/service/str_to_list.py
 src/service/text_effect_map_generated.py
 src/service/timelines.py
+src/service/upload_draft.py
 src/service/video_infos.py
 src/utils/__init__.py
 src/utils/cos.py
@@ -135,6 +142,7 @@ src/utils/helper.py
 src/utils/keyframe_value.py
 src/utils/logger.py
 src/utils/media.py
+src/utils/media_url.py
 src/utils/oss.py
 src/utils/points.py
 src/utils/storage_upload_retry.py
@@ -157,6 +165,7 @@ tests/test_api_version.py
 tests/test_audio_infos.py
 tests/test_audio_infos_simple.py
 tests/test_audio_timelines.py
+tests/test_auto_render_build.py
 tests/test_caption_keywords.py
 tests/test_caption_transform.py
 tests/test_caption_transform_fix.py
@@ -177,6 +186,7 @@ tests/test_font_size.py
 tests/test_font_size_debug.py
 tests/test_font_size_logic.py
 tests/test_font_size_not_set.py
+tests/test_gen_video_local_fallback.py
 tests/test_get_audio_duration_api.py
 tests/test_get_text_effects.py
 tests/test_imgs_infos_multiple_animations.py
@@ -194,6 +204,7 @@ tests/test_search_sticker_simple.py
 tests/test_storage_upload_retry.py
 tests/test_text_segment_add_animation.py
 tests/test_transform_coordinate_fix.py
+tests/test_upload_draft.py
 tests/test_upload_file.py
 tests/test_video_duration_extension.py
 tests/test_video_task_draft_duration.py

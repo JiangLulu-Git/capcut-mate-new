@@ -17,6 +17,7 @@ from src.utils.video_task_store import (
     prune_if_needed,
     save_completed_result,
 )
+from src.utils.media_url import to_public_download_url
 import src.pyJianYingDraft as draft
 import config
 import os
@@ -38,18 +39,70 @@ _EXPORT_FRAMERATE_BY_FPS = {
 }
 
 
-def _resolve_export_framerate():
-    """根据 config.EXPORT_FRAMERATE_FPS 解析剪映导出面板帧率选项。"""
+def _resolve_export_framerate(draft_id: Optional[str] = None):
+    """根据草稿 fps（或 config）解析剪映导出面板帧率选项。"""
     if draft.ExportFramerate is None:
         return None
     fps = config.EXPORT_FRAMERATE_FPS
+    if draft_id:
+        from src.utils.video_probe import read_draft_fps
+
+        fps = read_draft_fps(draft_id)
     attr = _EXPORT_FRAMERATE_BY_FPS.get(fps)
     if attr is None:
         logger.warning(
-            "Unsupported EXPORT_FRAMERATE_FPS=%s, fallback to 25fps", fps
+            "Unsupported draft/export fps=%s, fallback to 25fps", fps
         )
         return draft.ExportFramerate.FR_25
     return getattr(draft.ExportFramerate, attr)
+
+
+_EXPORT_RESOLUTION_BY_NAME = {
+    "8K": "RES_8K",
+    "4K": "RES_4K",
+    "2K": "RES_2K",
+    "1080P": "RES_1080P",
+    "720P": "RES_720P",
+    "480P": "RES_480P",
+}
+
+
+def _resolve_export_codec() -> tuple[Optional[Any], list[str]]:
+    """解析剪映导出编码（HEVC/H264）及 UI 文案列表。"""
+    if draft.ExportCodec is None:
+        return None, []
+    name = (getattr(config, "EXPORT_CODEC", None) or "").strip().upper()
+    if not name:
+        return None, []
+    codec_map = {
+        "HEVC": draft.ExportCodec.HEVC,
+        "H265": draft.ExportCodec.HEVC,
+        "H.265": draft.ExportCodec.HEVC,
+        "H264": draft.ExportCodec.H264,
+        "H.264": draft.ExportCodec.H264,
+        "AVC": draft.ExportCodec.H264,
+    }
+    codec = codec_map.get(name)
+    if codec is None:
+        logger.warning("Unsupported EXPORT_CODEC=%s, skip", name)
+        return None, []
+    raw_labels = getattr(config, "EXPORT_CODEC_UI_LABELS", "") or ""
+    labels = [s.strip() for s in raw_labels.split(",") if s.strip()]
+    return codec, labels
+
+
+def _resolve_export_resolution():
+    """根据 config.EXPORT_RESOLUTION 解析剪映导出分辨率（空则跟随画布/剪映默认）。"""
+    if draft.ExportResolution is None:
+        return None
+    name = (config.EXPORT_RESOLUTION or "").strip().upper()
+    if not name:
+        return None
+    attr = _EXPORT_RESOLUTION_BY_NAME.get(name)
+    if attr is None:
+        logger.warning("Unsupported EXPORT_RESOLUTION=%s, skip", name)
+        return None
+    return getattr(draft.ExportResolution, attr)
 
 # gen_video：同时下载草稿的最大并发，超出部分在 _download_executor 队列中排队
 DRAFT_DOWNLOAD_MAX_CONCURRENT = 3
@@ -204,20 +257,28 @@ class VideoGenTaskManager:
         # 热路径：本进程内提交过的任务始终在内存，避免每次轮询都抢 SQLite 全局锁
         task = self.tasks.get(draft_url)
         if task:
-            return {
-                "draft_url": task.draft_url,
-                "status": task.status.value,
-                "progress": task.progress,
-                "video_url": task.video_url,
-                "error_message": task.error_message,
-                "created_at": task.created_at.isoformat(),
-                "started_at": task.started_at.isoformat() if task.started_at else None,
-                "completed_at": task.completed_at.isoformat() if task.completed_at else None,
-            }
+            return self._public_status_dict(
+                draft_url=task.draft_url,
+                status=task.status.value,
+                progress=task.progress,
+                video_url=task.video_url,
+                error_message=task.error_message,
+                created_at=task.created_at.isoformat(),
+                started_at=task.started_at.isoformat() if task.started_at else None,
+                completed_at=task.completed_at.isoformat() if task.completed_at else None,
+            )
 
         prune_if_needed()
         draft_id = helper.get_url_param(draft_url, "draft_id")
-        return get_completed_by_draft_id(draft_id)
+        row = get_completed_by_draft_id(draft_id)
+        if row:
+            row["video_url"] = to_public_download_url(row.get("video_url") or "")
+        return row
+
+    @staticmethod
+    def _public_status_dict(**fields: Any) -> Dict[str, Any]:
+        fields["video_url"] = to_public_download_url(fields.get("video_url") or "")
+        return fields
 
     def get_active_render_count(self) -> int:
         """
@@ -532,11 +593,13 @@ class VideoGenTaskManager:
                     return "", f"导出文件不存在: {task.outfile}"
                 local_path = os.path.normpath(os.path.abspath(task.outfile))
                 keep_local_mp4 = True
+                public_url = to_public_download_url(local_path)
                 logger.info(
-                    "Object storage not configured; gen_video completed with local path: %s",
+                    "Object storage not configured; gen_video completed with public url: %s (file=%s)",
+                    public_url,
                     local_path,
                 )
-                return local_path, ""
+                return public_url, ""
 
             upload_url, upload_failed = self._upload_video_to_cos(task.outfile)
             return self._handle_result(upload_url, upload_failed)
@@ -617,10 +680,14 @@ class VideoGenTaskManager:
                 task.progress = 70
 
                 # 导出指定名称的草稿
+                export_codec, codec_labels = _resolve_export_codec()
                 ctrl.export_draft(
                     task.draft_id,
                     outfile,
-                    framerate=_resolve_export_framerate(),
+                    resolution=_resolve_export_resolution(),
+                    framerate=_resolve_export_framerate(task.draft_id),
+                    codec=export_codec,
+                    codec_ui_labels=codec_labels or None,
                 )
 
             # 检查文件是否生成
@@ -633,6 +700,9 @@ class VideoGenTaskManager:
                 )
                 return False
 
+            from src.utils.mp4_web_optimize import optimize_mp4_for_web
+
+            optimize_mp4_for_web(outfile, draft_id=task.draft_id)
             logger.info(f"Export draft success: {outfile}")
             return True
     

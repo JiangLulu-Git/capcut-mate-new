@@ -1,4 +1,5 @@
 import requests
+from tests.api_helpers import unwrap_test_response
 import json
 import time
 
@@ -21,7 +22,7 @@ def test_transform_coordinate_fix():
             print(create_response.text)
             return
             
-        draft_url = create_response.json()["draft_url"]
+        draft_url = unwrap_test_response(create_response)["draft_url"]
         print(f"草稿创建成功: {draft_url}")
         
         # 2. 添加带transform坐标的图片
@@ -48,7 +49,7 @@ def test_transform_coordinate_fix():
         add_response = requests.post(add_images_url, json=add_images_data)
         
         if add_response.status_code == 200:
-            result = add_response.json()
+            result = unwrap_test_response(add_response)
             print("✅ Transform坐标计算修复测试通过!")
             print(f"返回的image_timeline_ids: {result.get('image_timeline_ids', [])}")
             
@@ -89,7 +90,7 @@ def test_transform_with_different_draft_sizes():
                 print(f"草稿创建失败: {create_response.status_code}")
                 continue
                 
-            draft_url = create_response.json()["draft_url"]
+            draft_url = unwrap_test_response(create_response)["draft_url"]
             
             # 添加图片测试transform
             image_infos = [{

@@ -2,162 +2,191 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from exceptions import CustomError, CustomException
 from starlette.middleware.base import BaseHTTPMiddleware
+from src.schemas.api_standard import API_CODE_SUCCESS
 from src.utils.logger import logger
 import json
 
+_ENVELOPE_KEYS = frozenset({"code", "message", "data"})
+
 
 class ResponseMiddleware(BaseHTTPMiddleware):
-    """统一响应处理中间件
-    功能：
-    1. 统一处理业务正常响应，添加code和message字段
-    2. 统一处理异常，返回标准错误格式
-    """
+    """统一响应：成功 {code:1, message, data}；失败 {code, message, data:null}。"""
 
     async def dispatch(self, request: Request, call_next):
-        # 提前初始化 lang 变量，确保在异常处理中可用
-        lang = 'zh'  # 默认语言
-        
+        if request.url.path.startswith("/output/"):
+            return await call_next(request)
+
+        lang = "zh"
         try:
             lang = self._get_language_from_request(request)
             response = await call_next(request)
 
-            # 处理非200状态码的响应
             if response.status_code != 200:
                 return await self._handle_non_200_response(response, lang)
-                
-            # 处理JSON响应
+
             if self._is_json_response(response):
                 return await self._process_json_response(response, lang)
-                
+
             return response
-            
+
         except CustomException as e:
             return self._handle_custom_exception(e, lang)
         except Exception as e:
             return self._handle_generic_exception(e, lang)
 
     def _get_language_from_request(self, request: Request) -> str:
-        """从请求头获取语言偏好"""
         try:
-            # 安全地解析 Accept-Language 头
-            accept_lang = request.headers.get('Accept-Language', 'zh')
+            accept_lang = request.headers.get("Accept-Language", "zh")
             if not accept_lang or not accept_lang.strip():
-                return 'zh'
-            
-            # 先按逗号分割，取第一部分
-            lang_parts = accept_lang.split(',')[0].strip()
+                return "zh"
+
+            lang_parts = accept_lang.split(",")[0].strip()
             if not lang_parts:
-                return 'zh'
-            
-            # 再按连字符分割，取语言代码部分
-            lang_code_parts = lang_parts.split('-')
+                return "zh"
+
+            lang_code_parts = lang_parts.split("-")
             if not lang_code_parts or not lang_code_parts[0]:
-                return 'zh'
-            
+                return "zh"
+
             lang = lang_code_parts[0].lower()
-            return lang if lang in ['zh', 'en'] else 'zh'
-            
+            return lang if lang in ["zh", "en"] else "zh"
+
         except Exception:
-            # 如果解析过程中出现任何异常，返回默认语言
-            return 'zh'
-    
+            return "zh"
+
+    def _success_message(self, lang: str) -> str:
+        return CustomError.SUCCESS.as_dict(lang=lang)["message"]
+
+    def _is_standard_envelope(self, payload: dict) -> bool:
+        return (
+            isinstance(payload, dict)
+            and "code" in payload
+            and "message" in payload
+            and "data" in payload
+            and not any(k for k in payload if k not in _ENVELOPE_KEYS)
+        )
+
+    def _normalize_to_envelope(self, payload: dict, lang: str) -> dict:
+        """将路由 JSON 或历史扁平响应统一为 {code, message, data}。"""
+        if self._is_standard_envelope(payload):
+            out = dict(payload)
+            if out["code"] == 0:
+                out["code"] = API_CODE_SUCCESS
+            return out
+
+        # 历史扁平：{code, message, task_id, draft_id, ...}（message 常被业务 message 覆盖）
+        if isinstance(payload, dict) and "code" in payload and "message" in payload:
+            top_msg = payload.get("message")
+            business = {
+                k: v for k, v in payload.items() if k not in _ENVELOPE_KEYS
+            }
+            raw_code = payload["code"]
+            if raw_code in (0, 1):
+                success_msg = self._success_message(lang)
+                # 旧中间件 **展平 时，任务阶段说明会顶掉顶层「成功」
+                if top_msg and top_msg != success_msg and "message" not in business:
+                    business["message"] = top_msg
+                return {
+                    "code": API_CODE_SUCCESS,
+                    "message": success_msg,
+                    "data": business or None,
+                }
+            return {
+                "code": raw_code,
+                "message": payload["message"],
+                "data": business or None,
+            }
+
+        business = payload if payload else None
+        return {
+            "code": API_CODE_SUCCESS,
+            "message": self._success_message(lang),
+            "data": business,
+        }
+
     def _handle_422_error(self, body_str: str, lang: str) -> JSONResponse:
-        """特殊处理422参数验证错误"""
         try:
-            # 尝试解析422错误的响应体
             error_data = json.loads(body_str)
-            
-            # 提取验证错误的详细信息
+
             validation_messages = []
             if "detail" in error_data:
                 for error in error_data["detail"]:
                     if "loc" in error and "msg" in error:
-                        # 格式化错误信息
                         field = ".".join(str(part) for part in error["loc"] if part != "body")
                         message = f"{field}: {error['msg']}"
                         validation_messages.append(message)
 
-            # 构建统一的422错误响应（不包含data字段）
             error_message = "; ".join(validation_messages) if validation_messages else ""
-            error_response = CustomError.PARAM_VALIDATION_FAILED.as_dict(detail=error_message, lang=lang)
+            error_response = CustomError.PARAM_VALIDATION_FAILED.as_dict(
+                detail=error_message, lang=lang,
+            )
             return JSONResponse(status_code=200, content=error_response)
-            
+
         except json.JSONDecodeError:
             logger.warning(f"Failed to parse 422 response body: {body_str}")
-            
-            error_response = CustomError.PARAM_VALIDATION_FAILED.as_dict(detail=body_str, lang=lang)
+
+            error_response = CustomError.PARAM_VALIDATION_FAILED.as_dict(
+                detail=body_str, lang=lang,
+            )
             return JSONResponse(status_code=200, content=error_response)
 
     async def _handle_non_200_response(self, response, lang: str) -> JSONResponse:
-        """处理非200状态码的响应"""
         body = b""
         async for chunk in response.body_iterator:
             body += chunk
-        
+
         body_str = body.decode()
 
-        # 特殊处理422错误（参数验证错误）
         if response.status_code == 422:
             return self._handle_422_error(body_str, lang)
-        
-        # 其它情况不应该发生，每一个错误都应该在前面被处理
+
         logger.error(f"Non-200 response: {response.status_code} - {body_str}")
-        # 其他非200错误处理
         error_response = {
             "code": response.status_code,
-            "message": f"HTTP Error {response.status_code}, detail: {body_str}"
+            "message": f"HTTP Error {response.status_code}, detail: {body_str}",
+            "data": None,
         }
-        
+
         return JSONResponse(status_code=200, content=error_response)
 
     def _is_json_response(self, response) -> bool:
-        """检查是否为JSON响应"""
-        return response.headers.get('content-type') == 'application/json'
+        return response.headers.get("content-type") == "application/json"
 
     async def _process_json_response(self, response, lang: str):
-        """处理JSON响应并统一格式"""
         body = [section async for section in response.body_iterator]
         if not body:
             return response
-            
-        body_str = b''.join(body).decode()
-        
+
+        body_str = b"".join(body).decode()
+
         try:
-            data = json.loads(body_str)
-            
-            # 如果响应已经有统一格式，直接返回
-            if 'code' in data and 'message' in data:
+            payload = json.loads(body_str)
+            if not isinstance(payload, dict):
                 return response
-                
-            # 创建统一格式的响应（成功响应保留data字段）
-            unified_response = {
-                'code': CustomError.SUCCESS.code,
-                'message': CustomError.SUCCESS.as_dict(lang=lang)['message'],
-                **data
-            }
-            
+
+            unified = self._normalize_to_envelope(payload, lang)
             return JSONResponse(
                 status_code=response.status_code,
-                content=unified_response
+                content=unified,
             )
-            
+
         except json.JSONDecodeError:
             logger.warning(f"JSON decode error: {body_str}")
             return response
 
     def _handle_custom_exception(self, e: CustomException, lang: str) -> JSONResponse:
-        """处理自定义异常（不包含data字段）"""
-        logger.warning(f"Custom exception: {e.err.code} - {e.err.cn_message}" + 
-                    (f" ({e.detail})" if e.detail else ""))
-        
-        # 获取错误信息
+        logger.warning(
+            f"Custom exception: {e.err.code} - {e.err.cn_message}"
+            + (f" ({e.detail})" if e.detail else "")
+        )
+
         error_response = e.err.as_dict(detail=e.detail, lang=lang)
         return JSONResponse(status_code=200, content=error_response)
 
     def _handle_generic_exception(self, e: Exception, lang: str) -> JSONResponse:
-        """处理通用异常（不包含data字段）"""
         logger.warning(f"Internal server error: {str(e)}")
-        
-        # 获取错误信息
-        error_response = CustomError.INTERNAL_SERVER_ERROR.as_dict(detail=str(e), lang=lang)
+
+        error_response = CustomError.INTERNAL_SERVER_ERROR.as_dict(
+            detail=str(e), lang=lang,
+        )
         return JSONResponse(status_code=200, content=error_response)

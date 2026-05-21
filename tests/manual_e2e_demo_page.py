@@ -36,9 +36,18 @@ def post_json(path: str, body: dict) -> dict:
     )
     with urlopen(req) as r:
         data = json.loads(r.read().decode())
-    if data.get("code", 0) != 0:
+    if data.get("code") != 1:
         raise RuntimeError(data.get("message", data))
-    return data
+    return data.get("data") or {}
+
+
+def get_api(url: str) -> dict:
+    raw = get(url)
+    if raw.get("code") is not None:
+        if raw.get("code") != 1:
+            raise RuntimeError(raw.get("message", raw))
+        return raw.get("data") or {}
+    return raw
 
 
 def main() -> int:
@@ -61,7 +70,7 @@ def main() -> int:
     print(f"   draft_id={draft_id}")
 
     print("3. prepare_local_edit + mate_open_url …")
-    prep = get(f"{V1}/prepare_local_edit?{urlencode({'draft_id': draft_id})}")
+    prep = get_api(f"{V1}/prepare_local_edit?{urlencode({'draft_id': draft_id})}")
     assert prep.get("mate_open_url", "").startswith("capcut-mate://")
     print(f"   mate_open_url OK")
 
@@ -95,7 +104,7 @@ def main() -> int:
     with urlopen(req) as r:
         up = json.loads(r.read().decode())
     os.unlink(zp)
-    assert up.get("code") == 0
+    assert up.get("code") == 1
     print("   upload_draft OK")
 
     print("\n全部 API 联调通过。请在浏览器打开:")

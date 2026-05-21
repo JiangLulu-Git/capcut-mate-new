@@ -1,4 +1,5 @@
 import pytest
+from tests.api_helpers import unwrap_test_response
 from fastapi.testclient import TestClient
 from main import app
 from src.service.create_draft import create_draft_service
@@ -33,9 +34,9 @@ def test_create_draft_api():
     """测试创建草稿的API接口"""
     response = client.post("/openapi/v1/create_draft", json={"height": 1080, "width": 1920})
     assert response.status_code == 200
-    assert "message" in response.json()
-    assert "draft_id" in response.json()
-    assert response.json()["message"] == "草稿创建成功"
+    assert "message" in unwrap_test_response(response)
+    assert "draft_id" in unwrap_test_response(response)
+    assert unwrap_test_response(response)["message"] == "草稿创建成功"
 
 
 if __name__ == "__main__":

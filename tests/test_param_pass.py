@@ -1,4 +1,5 @@
 import requests
+from tests.api_helpers import unwrap_test_response
 
 
 def test_create_draft_with_custom_params():
@@ -24,18 +25,18 @@ def test_create_draft_with_custom_params():
                 json={"height": height, "width": width}
             )
             print(f"Response status code: {response.status_code}")
-            print(f"Response body: {response.json()}")
+            print(f"Response body: {unwrap_test_response(response)}")
             
             if response.status_code != 200:
                 print(f"Error: Request failed with status code {response.status_code}")
                 continue
 
-            if "message" not in response.json() or "draft_id" not in response.json():
+            if "message" not in unwrap_test_response(response) or "draft_id" not in unwrap_test_response(response):
                 print("Error: Response missing required fields")
                 continue
 
-            if response.json()["message"] != "草稿创建成功":
-                print(f"Error: Unexpected message: {response.json()['message']}")
+            if unwrap_test_response(response)["message"] != "草稿创建成功":
+                print(f"Error: Unexpected message: {unwrap_test_response(response)['message']}")
                 continue
 
             print("Test passed!")

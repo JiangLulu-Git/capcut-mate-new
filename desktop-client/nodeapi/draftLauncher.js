@@ -70,11 +70,11 @@ async function downloadDraftFromUrl(draftUrl, parentWindow, options = {}) {
 
   logger.info("[launcher] download draft: %s (open_jianying=%s)", targetId, openJianying);
   const jsonData = await getDraftUrls(draftUrl, parentWindow);
-  if (jsonData?.code !== 0 || !jsonData?.files) {
-    throw new Error("获取草稿文件列表失败");
+  if (jsonData?.code !== 1 || !jsonData?.data?.files) {
+    throw new Error(jsonData?.message || "获取草稿文件列表失败");
   }
 
-  const matchedFiles = jsonData.files.filter((fileUrl) => fileUrl.includes(targetId));
+  const matchedFiles = jsonData.data.files.filter((fileUrl) => fileUrl.includes(targetId));
   if (!matchedFiles.length) {
     throw new Error("未找到包含 draft_id 的文件");
   }

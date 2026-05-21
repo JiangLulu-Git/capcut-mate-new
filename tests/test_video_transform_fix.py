@@ -1,4 +1,5 @@
 import requests
+from tests.api_helpers import unwrap_test_response
 import json
 import time
 
@@ -21,7 +22,7 @@ def test_video_transform_coordinate_fix():
             print(create_response.text)
             return
             
-        draft_url = create_response.json()["draft_url"]
+        draft_url = unwrap_test_response(create_response)["draft_url"]
         print(f"草稿创建成功: {draft_url}")
         
         # 2. 添加带transform坐标的视频
@@ -48,7 +49,7 @@ def test_video_transform_coordinate_fix():
         add_response = requests.post(add_videos_url, json=add_videos_data)
         
         if add_response.status_code == 200:
-            result = add_response.json()
+            result = unwrap_test_response(add_response)
             print("✅视频Transform坐标计算修复测试通过!")
             print(f"返回的segment_ids: {result.get('segment_ids', [])}")
             
@@ -89,7 +90,7 @@ def test_video_transform_with_different_draft_sizes():
                 print(f"草稿创建失败: {create_response.status_code}")
                 continue
                 
-            draft_url = create_response.json()["draft_url"]
+            draft_url = unwrap_test_response(create_response)["draft_url"]
             
             # 添加视频测试transform
             video_infos = [{
@@ -131,7 +132,7 @@ def test_video_transform_vs_image_transform_consistency():
     try:
         # 创建草稿
         create_response = requests.post("http://localhost:8000/v1/create_draft", json=create_draft_data)
-        draft_url = create_response.json()["draft_url"]
+        draft_url = unwrap_test_response(create_response)["draft_url"]
         
         #相同的transform参数
         transform_x, transform_y = 480, 270  # 1/4位置

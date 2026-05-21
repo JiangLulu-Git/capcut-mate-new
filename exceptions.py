@@ -5,7 +5,7 @@ class CustomError(Enum):
     """错误码枚举类（支持中英文）"""
     
     # ===== 基础错误码 (1000-1999) =====
-    SUCCESS = (0, "成功", "Success")
+    SUCCESS = (1, "成功", "Success")
     PARAM_VALIDATION_FAILED = (1001, "参数校验失败", "Parameter validation failed")
     RESOURCE_NOT_FOUND = (1002, "资源不存在", "Resource not found")
     PERMISSION_DENIED = (1003, "权限不足", "Permission denied")
@@ -56,6 +56,7 @@ class CustomError(Enum):
     DRAFT_LOCK_TIMEOUT = (2042, "草稿锁获取超时，同一时间只允许一个操作", "Draft lock acquisition timeout, only one operation allowed at a time")
     DRAFT_UPLOAD_INVALID = (2043, "上传的草稿包无效或缺少 draft_content.json", "Invalid uploaded draft package or missing draft_content.json")
     DRAFT_UPLOAD_TOO_LARGE = (2044, "上传的草稿包超出大小限制", "Uploaded draft package exceeds size limit")
+    TRANSITION_GET_FAILED = (2045, "获取转场效果列表失败", "Get transition list failed")
 
     # ===== 系统错误码 (9000-9999) =====
     INTERNAL_SERVER_ERROR = (9998, "系统内部错误", "Internal server error")
@@ -71,7 +72,7 @@ class CustomError(Enum):
         message = self.cn_message if lang == 'zh' else self.en_message
         if detail:
             message += f"({detail})"
-        return {"code": self.code, "message": message}
+        return {"code": self.code, "message": message, "data": None}
 
 
 # 自定义异常类

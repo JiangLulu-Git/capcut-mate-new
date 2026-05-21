@@ -47,6 +47,9 @@ def create_draft(width: int, height: int) -> str:
         script.dual_file_compatibility = True
         script.width, script.height = width, height
         script.content["canvas_config"]["width"], script.content["canvas_config"]["height"] = width, height
+        workflow_fps = int(config.EXPORT_FRAMERATE_FPS)
+        script.fps = workflow_fps
+        script.content["fps"] = workflow_fps
         
         # 保存修改后的草稿（会自动同步到两个文件）
         script.save_path = draft_content_path

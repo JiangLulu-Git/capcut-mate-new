@@ -278,14 +278,14 @@ def get_draft_files_list(draft_url: str) -> list:
                 return []
 
             # 检查响应状态
-            if json_data.get('code') != 0:
+            if json_data.get('code') != 1:
                 logger.error(
                     f"Failed to get draft file list: {json_data.get('message', 'unknown error')}"
                 )
                 return []
 
-            # 返回files列表
-            files = json_data.get('files', [])
+            payload = json_data.get('data') or {}
+            files = payload.get('files', [])
             logger.info(f"Fetched {len(files)} draft file(s)")
             return files
         except requests.exceptions.RequestException as e:

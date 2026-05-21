@@ -2,6 +2,7 @@
 测试 get_audio_duration 接口的编码问题修复
 """
 import requests
+from tests.api_helpers import unwrap_test_response
 import json
 
 def test_chinese_metadata_audio():
@@ -32,7 +33,7 @@ def test_chinese_metadata_audio():
         print(f"📊 响应状态码: {response.status_code}")
         
         if response.status_code == 200:
-            result = response.json()
+            result = unwrap_test_response(response)
             print(f"✅ 编码问题修复成功！")
             print(f"📋 响应数据: {json.dumps(result, indent=2, ensure_ascii=False)}")
             
