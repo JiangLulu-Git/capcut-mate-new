@@ -99,13 +99,15 @@ def _check_timeline_build(
 ) -> Tuple[List[Dict[str, Any]], Tuple[float, float]]:
     req = AutoRenderRequest(
         videos=[
-            VideoClipInput(video_url=video_url, use_full_duration=True),
+            VideoClipInput(
+                video_url=video_url,
+                use_full_duration=True,
+                transition=transition,
+                transition_duration=transition_duration_us,
+            ),
             VideoClipInput(video_url=video_url, use_full_duration=True),
         ],
-        default_transition=transition,
-        default_transition_duration=transition_duration_us,
         wait_export=False,
-        captions=[],
     )
     with patch(
         "src.service.auto_render.probe_video_duration_us",
@@ -206,12 +208,14 @@ def main() -> int:
 
     body = {
         "videos": [
-            {"video_url": args.video_url, "use_full_duration": True},
+            {
+                "video_url": args.video_url,
+                "use_full_duration": True,
+                "transition": args.transition,
+                "transition_duration": transition_us,
+            },
             {"video_url": args.video_url, "use_full_duration": True},
         ],
-        "captions": [],
-        "default_transition": args.transition,
-        "default_transition_duration": transition_us,
         "wait_export": True,
         "async_mode": False,
         "export_timeout_sec": args.export_timeout_sec,

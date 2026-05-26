@@ -26,9 +26,27 @@ import src.pyJianYingDraft as draft
 
 from exceptions import CustomException, CustomError
 
-from src.schemas.auto_render import AutoRenderRequest, AutoRenderResponse, CaptionInput, VideoClipInput
+from src.schemas.auto_render import (
+    AutoRenderRequest,
+    AutoRenderResponse,
+    CaptionInput,
+    ImageClipInput,
+    VideoClipInput,
+)
+
+# 画中画默认布局（videos[i] 未传 scale/transform 时使用）
+DEFAULT_OVERLAY_SCALE = 0.75
+DEFAULT_OVERLAY_TRANSFORM_X = -160
+DEFAULT_OVERLAY_TRANSFORM_Y = 0
+DEFAULT_CLIP_TRANSITION_DURATION_US = 1_000_000
+
+from src.schemas.add_videos import SegmentInfo
 
 from src.service.add_captions import add_captions
+
+from src.service.add_images import add_images
+
+from src.service.add_keyframes import add_keyframes
 
 from src.service.add_videos import add_videos
 
@@ -41,11 +59,63 @@ from src.service.save_draft import save_draft
 from src.utils import helper
 
 from src.utils.download import download
+from src.utils.time_unit import TimeUnit, to_timeline_us
 
 from src.utils.logger import logger
 
 
 
+
+
+def _normalize_caption_input_times(cap: CaptionInput, unit: TimeUnit) -> CaptionInput:
+    return cap.model_copy(
+        update={
+            "start": to_timeline_us(cap.start, unit),
+            "end": to_timeline_us(cap.end, unit),
+            "in_animation_duration": to_timeline_us(cap.in_animation_duration, unit),
+            "out_animation_duration": to_timeline_us(cap.out_animation_duration, unit),
+        }
+    )
+
+
+def normalize_auto_render_request_times(req: AutoRenderRequest) -> AutoRenderRequest:
+    """将 time_unit=ms 的请求时间统一换算为内部微秒。"""
+    unit: TimeUnit = req.time_unit  # type: ignore[assignment]
+    if unit != "ms":
+        return req
+
+    videos = [
+        v.model_copy(
+            update={
+                "start": to_timeline_us(v.start, unit),
+                "end": to_timeline_us(v.end, unit),
+                "transition_duration": to_timeline_us(v.transition_duration, unit),
+                "overlay_exit_duration_us": to_timeline_us(v.overlay_exit_duration_us, unit),
+                "captions": [_normalize_caption_input_times(c, unit) for c in v.captions],
+            }
+        )
+        for v in req.videos
+    ]
+    images = [
+        img.model_copy(
+            update={
+                "start": to_timeline_us(img.start, unit),
+                "end": to_timeline_us(img.end, unit),
+            }
+        )
+        for img in req.background_images
+    ]
+    return req.model_copy(
+        update={
+            "videos": videos,
+            "background_images": images,
+            "default_transition_duration": to_timeline_us(
+                req.default_transition_duration, unit
+            )
+            or req.default_transition_duration,
+            "time_unit": "us",
+        }
+    )
 
 
 def _make_draft_url(draft_id: str, api_base_url: str) -> str:
@@ -84,21 +154,20 @@ def compute_caption_transform_y_bottom(
     *,
     bottom_margin_px: int = 10,
     font_size: int = 15,
+    offset_down_px: int = 0,
 ) -> float:
     """
     课堂视频风格：字幕贴近底边（约 bottom_margin_px）。
 
-    add_captions 将像素 transform_y 除以画布高度写入草稿；剪映 SRT 导入底字幕
-    约为 transform_y=-0.8（负值偏下）。故：
-        pixel_y = target_native * canvas_height，target_native 略大于 -0.8（留出底边距）。
+    add_captions 将像素 transform_y 除以画布高度写入草稿；剪映底字幕约 -0.8（半画布高单位）。
+    pixel 更负 → 更靠画面下方。
     """
     if canvas_height <= 0:
         return 0.0
     line_half = max(font_size * 0.55, 8.0)
-    # 相对 -0.8 底部位向上微调（native 增大 = 离底边稍远）
     lift_native = (bottom_margin_px + line_half) / canvas_height
     target_native = -0.8 + lift_native
-    return target_native * canvas_height
+    return target_native * canvas_height - float(offset_down_px)
 
 
 def resolve_caption_transform_y(
@@ -111,10 +180,133 @@ def resolve_caption_transform_y(
         canvas_height,
         bottom_margin_px=req.caption_bottom_margin_px,
         font_size=req.font_size,
+        offset_down_px=req.caption_offset_down_px,
     )
 
 
 
+
+
+def probe_image_size_px(image_url: str) -> tuple[int, int]:
+    """下载并探测图片宽高（像素）。"""
+    probe_dir = os.path.join(config.TEMP_DIR, "auto_render_probe")
+    os.makedirs(probe_dir, exist_ok=True)
+    local_path = download(url=image_url, save_dir=probe_dir)
+    material = draft.VideoMaterial(local_path)
+    if material.width <= 0 or material.height <= 0:
+        raise CustomException(CustomError.INVALID_IMAGE_INFO, f"无法解析图片尺寸: {image_url}")
+    return material.width, material.height
+
+
+def _normalize_transition_name(name: Optional[str]) -> Optional[str]:
+    if name is None:
+        return None
+    stripped = name.strip()
+    return stripped or None
+
+
+def _resolve_transition_name(req: AutoRenderRequest, clip: VideoClipInput, index: int) -> Optional[str]:
+    """
+    转场优先级：
+    1. videos[i].no_transition
+    2. videos[i].transition
+    3. [废弃] transitions[] / default_transition
+    """
+    if clip.no_transition:
+        return None
+    if clip.transition is not None:
+        return _normalize_transition_name(clip.transition)
+    if req.transitions:
+        if req.transition_assign_mode == "sequential":
+            slot = req.transitions[index] if index < len(req.transitions) else req.transitions[-1]
+        else:
+            slot = req.transitions[index % len(req.transitions)]
+        return _normalize_transition_name(slot)
+    return _normalize_transition_name(req.default_transition)
+
+
+def _resolve_transition_duration_us(clip: VideoClipInput, req: AutoRenderRequest) -> int:
+    if clip.transition_duration is not None:
+        return clip.transition_duration
+    return req.default_transition_duration
+
+
+def _clip_needs_overlay_exit_animation(req: AutoRenderRequest, index: int) -> bool:
+    """仅「当前段画中画 + 下一段全屏」时需要末尾缩放关键帧；连续两段画中画不需要。"""
+    if index >= len(req.videos) - 1:
+        return False
+    return req.videos[index].overlay and not req.videos[index + 1].overlay
+
+
+def _resolve_clip_overlay_layout(clip: VideoClipInput) -> tuple[float, float, int, int]:
+    return (
+        clip.scale_x if clip.scale_x is not None else DEFAULT_OVERLAY_SCALE,
+        clip.scale_y if clip.scale_y is not None else DEFAULT_OVERLAY_SCALE,
+        clip.transform_x if clip.transform_x is not None else DEFAULT_OVERLAY_TRANSFORM_X,
+        clip.transform_y if clip.transform_y is not None else DEFAULT_OVERLAY_TRANSFORM_Y,
+    )
+
+
+def _build_overlay_exit_keyframes(
+    req: AutoRenderRequest,
+    segment_infos: List[SegmentInfo],
+) -> List[Dict[str, Any]]:
+    """画中画段在段末按 videos[i].overlay_exit_duration_us 关键帧过渡到全屏。"""
+    keyframes: List[Dict[str, Any]] = []
+
+    for index, seg in enumerate(segment_infos):
+        if index >= len(req.videos) or not _clip_needs_overlay_exit_animation(req, index):
+            continue
+
+        clip = req.videos[index]
+        anim_cfg = clip.overlay_exit_duration_us
+        if anim_cfg is None or anim_cfg <= 0:
+            continue
+
+        duration_us = max(1, int(seg.end) - int(seg.start))
+        anim_us = min(anim_cfg, duration_us)
+        t_hold_us = duration_us - anim_us
+        scale_x, scale_y, tx, ty = _resolve_clip_overlay_layout(clip)
+        sid = seg.id
+
+        for prop, hold_val, end_val in (
+            ("KFTypeScaleX", scale_x, 1.0),
+            ("KFTypeScaleY", scale_y, 1.0),
+            ("KFTypePositionX", float(tx), 0.0),
+            ("KFTypePositionY", float(ty), 0.0),
+        ):
+            keyframes.append(
+                {
+                    "segment_id": sid,
+                    "property": prop,
+                    "offset": t_hold_us,
+                    "value": hold_val,
+                }
+            )
+            keyframes.append(
+                {
+                    "segment_id": sid,
+                    "property": prop,
+                    "offset": duration_us,
+                    "value": end_val,
+                }
+            )
+
+    return keyframes
+
+
+def _apply_clip_layout(item: Dict[str, Any], clip: VideoClipInput) -> None:
+    if clip.overlay:
+        scale_x, scale_y, tx, ty = _resolve_clip_overlay_layout(clip)
+        item["scale_x"] = scale_x
+        item["scale_y"] = scale_y
+        item["transform_x"] = tx
+        item["transform_y"] = ty
+    else:
+        item["scale_x"] = 1.0
+        item["scale_y"] = 1.0
+        item["transform_x"] = 0
+        item["transform_y"] = 0
 
 
 def _build_video_timeline_items(
@@ -148,12 +340,8 @@ def _build_video_timeline_items(
             start, end = clip.start, clip.end
             duration_us = end - start
 
-        transition = clip.transition if clip.transition is not None else req.default_transition
-        transition_duration = (
-            clip.transition_duration
-            if clip.transition_duration is not None
-            else req.default_transition_duration
-        )
+        transition = _resolve_transition_name(req, clip, index)
+        transition_duration = _resolve_transition_duration_us(clip, req)
 
         item: Dict[str, Any] = {
             "video_url": clip.video_url,
@@ -162,6 +350,7 @@ def _build_video_timeline_items(
             "duration": duration_us,
             "volume": clip.volume,
         }
+        _apply_clip_layout(item, clip)
         if transition and index < len(req.videos) - 1:
             item["transition"] = transition
             item["transition_duration"] = transition_duration
@@ -175,12 +364,127 @@ def _build_video_timeline_items(
     return items
 
 
+def _build_background_image_items(
+    images: List[ImageClipInput],
+    video_items: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    if not images:
+        return []
+
+    timeline_end = int(video_items[-1]["end"]) if video_items else 0
+    auto_align = (
+        len(images) == len(video_items)
+        and all(
+            img.start is None and img.end is None and img.align_video_index is None
+            for img in images
+        )
+    )
+
+    payload: List[Dict[str, Any]] = []
+    for index, image in enumerate(images):
+        if image.align_video_index is not None:
+            if image.align_video_index >= len(video_items):
+                raise CustomException(
+                    CustomError.INVALID_IMAGE_INFO,
+                    f"background_images[{index}].align_video_index 超出视频段数",
+                )
+            seg = video_items[image.align_video_index]
+            start, end = int(seg["start"]), int(seg["end"])
+        elif auto_align:
+            seg = video_items[index]
+            start, end = int(seg["start"]), int(seg["end"])
+        else:
+            start = image.start if image.start is not None else 0
+            end = image.end if image.end is not None else timeline_end
+
+        if end <= start:
+            raise CustomException(
+                CustomError.INVALID_IMAGE_INFO,
+                f"background_images[{index}] 时间无效: start={start}, end={end}",
+            )
+
+        width = image.width
+        height = image.height
+        if width is None or height is None:
+            probed_w, probed_h = probe_image_size_px(image.image_url)
+            width = width if width is not None else probed_w
+            height = height if height is not None else probed_h
+
+        payload.append(
+            {
+                "image_url": image.image_url,
+                "width": int(width),
+                "height": int(height),
+                "start": start,
+                "end": end,
+            }
+        )
+    return payload
+
+
 def compute_timeline_duration_us(req: AutoRenderRequest, workflow_fps: int) -> int:
     """成片时间轴总时长（微秒），等于最后一段视频的 end。"""
+    req = normalize_auto_render_request_times(req)
     items = _build_video_timeline_items(req, workflow_fps)
     if not items:
         return 0
     return int(items[-1]["end"])
+
+
+def _validate_clip_captions_relative(
+    clip_index: int,
+    captions: List[CaptionInput],
+    segment_duration_us: int,
+    workflow_fps: int,
+) -> None:
+    """校验 videos[i].captions：时间为相对本段起点，且不超过本段时长。"""
+    if not captions or segment_duration_us <= 0:
+        return
+
+    frame_us = max(1, round(1_000_000 / workflow_fps))
+    tolerance = frame_us
+    ordered = sorted(captions, key=lambda c: c.start)
+    for i, cap in enumerate(ordered):
+        if cap.start < 0:
+            raise CustomException(
+                CustomError.INVALID_CAPTION_INFO,
+                f"videos[{clip_index}].captions[{i + 1}] start 不能小于 0",
+            )
+        if cap.end > segment_duration_us + tolerance:
+            raise CustomException(
+                CustomError.INVALID_CAPTION_INFO,
+                f"videos[{clip_index}].captions[{i + 1}] end（{cap.end} 微秒）"
+                f"不能超过本段时长（{segment_duration_us} 微秒）",
+            )
+    for i in range(len(ordered) - 1):
+        if ordered[i + 1].start < ordered[i].end - tolerance:
+            raise CustomException(
+                CustomError.INVALID_CAPTION_INFO,
+                f"videos[{clip_index}] 字幕重叠："
+                f"第 {i + 1} 条 end={ordered[i].end}，第 {i + 2} 条 start={ordered[i + 1].start}",
+            )
+
+
+def _collect_timeline_captions(
+    req: AutoRenderRequest,
+    video_items: List[Dict[str, Any]],
+) -> List[CaptionInput]:
+    """将 videos[].captions（相对段首）映射到成片时间轴绝对时间。"""
+    merged: List[CaptionInput] = []
+    for index, clip in enumerate(req.videos):
+        if index >= len(video_items) or not clip.captions:
+            continue
+        seg_start = int(video_items[index]["start"])
+        for cap in clip.captions:
+            merged.append(
+                cap.model_copy(
+                    update={
+                        "start": seg_start + int(cap.start),
+                        "end": seg_start + int(cap.end),
+                    }
+                )
+            )
+    return sorted(merged, key=lambda c: c.start)
 
 
 def _validate_captions_timeline(
@@ -189,10 +493,10 @@ def _validate_captions_timeline(
     workflow_fps: int,
 ) -> None:
     """
-    校验字幕与成片时间轴一致：
-    - 第一条 start 为 0
-    - 最后一条 end 等于成片总时长
-    - 各条字幕时长之和等于成片总时长（无空隙、无重叠）
+    轻量校验字幕时间（不要求铺满整条成片）：
+    - 每条 0 <= start < end <= 成片时长
+    - 按 start 排序后相邻字幕不得重叠
+    - 允许片头/片尾/中间无字幕（例如结尾几秒静音无字）
     """
     if not captions or timeline_duration_us <= 0:
         return
@@ -201,39 +505,25 @@ def _validate_captions_timeline(
     tolerance = frame_us
 
     ordered = sorted(captions, key=lambda c: c.start)
-    if ordered[0].start > tolerance:
-        raise CustomException(
-            CustomError.INVALID_CAPTION_INFO,
-            f"第一条字幕 start 须为 0（允许 ±1 帧），当前为 {ordered[0].start} 微秒",
-        )
-
-    last_end = ordered[-1].end
-    if abs(last_end - timeline_duration_us) > tolerance:
-        raise CustomException(
-            CustomError.INVALID_CAPTION_INFO,
-            f"最后一条字幕 end（{last_end} 微秒）须等于成片时长（{timeline_duration_us} 微秒）",
-        )
-
-    total_caption_us = sum(c.end - c.start for c in ordered)
-    if abs(total_caption_us - timeline_duration_us) > tolerance:
-        raise CustomException(
-            CustomError.INVALID_CAPTION_INFO,
-            f"字幕总时长（{total_caption_us} 微秒）须等于成片时长（{timeline_duration_us} 微秒）",
-        )
+    for i, cap in enumerate(ordered):
+        if cap.start < 0:
+            raise CustomException(
+                CustomError.INVALID_CAPTION_INFO,
+                f"第 {i + 1} 条字幕 start 不能小于 0，当前为 {cap.start} 微秒",
+            )
+        if cap.end > timeline_duration_us + tolerance:
+            raise CustomException(
+                CustomError.INVALID_CAPTION_INFO,
+                f"第 {i + 1} 条字幕 end（{cap.end} 微秒）不能超过成片时长"
+                f"（{timeline_duration_us} 微秒）",
+            )
 
     for i in range(len(ordered) - 1):
-        gap = ordered[i + 1].start - ordered[i].end
-        if gap < -tolerance:
+        if ordered[i + 1].start < ordered[i].end - tolerance:
             raise CustomException(
                 CustomError.INVALID_CAPTION_INFO,
                 f"字幕时间重叠：第 {i + 1} 条 end={ordered[i].end}，"
                 f"第 {i + 2} 条 start={ordered[i + 1].start}",
-            )
-        if gap > tolerance:
-            raise CustomException(
-                CustomError.INVALID_CAPTION_INFO,
-                f"字幕存在空隙：第 {i + 1} 条 end={ordered[i].end}，"
-                f"第 {i + 2} 条 start={ordered[i + 1].start}（总时长将无法对齐成片）",
             )
 
 
@@ -364,10 +654,11 @@ def _install_draft_to_jianying(draft_id: str) -> bool:
 
 def auto_render_build_draft(req: AutoRenderRequest) -> AutoRenderResponse:
     """创建草稿 → 视频/字幕/转场 → 保存（不提交导出）。"""
+    req = normalize_auto_render_request_times(req)
     logger.info(
         "auto_render build: videos=%s captions=%s",
         len(req.videos),
-        len(req.captions),
+        sum(len(v.captions) for v in req.videos),
     )
 
     import config as app_config
@@ -399,20 +690,53 @@ def auto_render_build_draft(req: AutoRenderRequest) -> AutoRenderResponse:
 
     video_items = _build_video_timeline_items(req, workflow_fps)
     timeline_duration_us = int(video_items[-1]["end"]) if video_items else 0
-    if req.captions and req.validate_caption_timeline:
-        _validate_captions_timeline(req.captions, timeline_duration_us, workflow_fps)
+    if req.validate_caption_timeline:
+        for index, clip in enumerate(req.videos):
+            if index < len(video_items) and clip.captions:
+                seg = video_items[index]
+                _validate_clip_captions_relative(
+                    index,
+                    clip.captions,
+                    int(seg["end"]) - int(seg["start"]),
+                    workflow_fps,
+                )
+    all_captions = _collect_timeline_captions(req, video_items)
+    if all_captions and req.validate_caption_timeline:
+        _validate_captions_timeline(all_captions, timeline_duration_us, workflow_fps)
         logger.info(
             "auto_render: captions timeline OK, count=%s timeline_us=%s",
-            len(req.captions),
+            len(all_captions),
             timeline_duration_us,
         )
 
+    if req.background_images:
+        image_items = _build_background_image_items(req.background_images, video_items)
+        image_infos = json.dumps(image_items, ensure_ascii=False)
+        add_images(draft_url=local_draft_url, image_infos=image_infos)
+        logger.info(
+            "auto_render: background images added, count=%s draft_id=%s",
+            len(image_items),
+            draft_id,
+        )
+
     video_infos = json.dumps(video_items, ensure_ascii=False)
-    add_videos(draft_url=local_draft_url, video_infos=video_infos)
+    _, _, _, _, segment_infos = add_videos(draft_url=local_draft_url, video_infos=video_infos)
     logger.info("auto_render: videos added, draft_id=%s", draft_id)
 
-    if req.captions:
-        captions_json = _build_captions_json(req.captions)
+    exit_keyframes = _build_overlay_exit_keyframes(req, segment_infos)
+    if exit_keyframes:
+        add_keyframes(
+            draft_url=local_draft_url,
+            keyframes=json.dumps(exit_keyframes, ensure_ascii=False),
+        )
+        logger.info(
+            "auto_render: overlay exit keyframes added, count=%s draft_id=%s",
+            len(exit_keyframes),
+            draft_id,
+        )
+
+    if all_captions:
+        captions_json = _build_captions_json(all_captions)
         caption_transform_y = resolve_caption_transform_y(req, canvas_h)
         add_captions(
             draft_url=local_draft_url,
@@ -425,7 +749,7 @@ def auto_render_build_draft(req: AutoRenderRequest) -> AutoRenderResponse:
         )
         logger.info(
             "auto_render: captions added, count=%s transform_y=%s canvas_h=%s",
-            len(req.captions),
+            len(all_captions),
             caption_transform_y,
             canvas_h,
         )
@@ -462,7 +786,7 @@ def auto_render_sync(req: AutoRenderRequest) -> AutoRenderResponse:
     logger.info(
         "auto_render sync: videos=%s captions=%s wait_export=%s",
         len(req.videos),
-        len(req.captions),
+        sum(len(v.captions) for v in req.videos),
         req.wait_export,
     )
     built = auto_render_build_draft(req)

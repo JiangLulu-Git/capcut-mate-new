@@ -35,12 +35,14 @@ def main() -> int:
         "/openapi/capcut-mate/v1/auto_render",
         {
             "videos": [
-                {"video_url": DEMO, "use_full_duration": True},
+                {
+                    "video_url": DEMO,
+                    "use_full_duration": True,
+                    "transition": "叠化",
+                    "transition_duration": 1_000_000,
+                },
                 {"video_url": DEMO, "use_full_duration": True},
             ],
-            "captions": [],
-            "default_transition": "叠化",
-            "default_transition_duration": 1_000_000,
             "wait_export": True,
             "async_mode": True,
             "api_base_url": API,

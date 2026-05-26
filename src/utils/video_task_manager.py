@@ -104,6 +104,21 @@ def _resolve_export_resolution():
         return None
     return getattr(draft.ExportResolution, attr)
 
+
+def _resolve_export_bitrate_kbps() -> Optional[int]:
+    """剪映导出面板自定义码率（Kbps）；0 或未配置则不改面板。"""
+    kbps = int(getattr(config, "EXPORT_BITRATE_KBPS", 0) or 0)
+    return kbps if kbps > 0 else None
+
+
+def _resolve_export_bitrate_type() -> str:
+    value = (getattr(config, "EXPORT_BITRATE_TYPE", None) or "VBR").strip().upper()
+    return value if value in ("CBR", "VBR") else "VBR"
+
+
+def _resolve_export_bitrate_mode_label() -> str:
+    return (getattr(config, "EXPORT_BITRATE_MODE_UI_LABEL", None) or "自定义").strip() or "自定义"
+
 # gen_video：同时下载草稿的最大并发，超出部分在 _download_executor 队列中排队
 DRAFT_DOWNLOAD_MAX_CONCURRENT = 3
 
@@ -688,6 +703,9 @@ class VideoGenTaskManager:
                     framerate=_resolve_export_framerate(task.draft_id),
                     codec=export_codec,
                     codec_ui_labels=codec_labels or None,
+                    bitrate_kbps=_resolve_export_bitrate_kbps(),
+                    bitrate_type=_resolve_export_bitrate_type(),
+                    bitrate_mode_label=_resolve_export_bitrate_mode_label(),
                 )
 
             # 检查文件是否生成
@@ -700,9 +718,6 @@ class VideoGenTaskManager:
                 )
                 return False
 
-            from src.utils.mp4_web_optimize import optimize_mp4_for_web
-
-            optimize_mp4_for_web(outfile, draft_id=task.draft_id)
             logger.info(f"Export draft success: {outfile}")
             return True
     

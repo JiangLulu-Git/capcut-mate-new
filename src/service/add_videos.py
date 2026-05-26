@@ -413,13 +413,18 @@ def add_video_to_draft(
         draft_height = script.height
         logger.info(f"draft size: {draft_width}x{draft_height}, transform_x: {transform_x}, transform_y: {transform_y}")
 
+        seg_scale_x = float(video.get("scale_x", scale_x))
+        seg_scale_y = float(video.get("scale_y", scale_y))
+        seg_transform_x = int(video.get("transform_x", transform_x))
+        seg_transform_y = int(video.get("transform_y", transform_y))
+
         # 4. 创建图像调节设置
         clip_settings = draft.ClipSettings(
             alpha=alpha,
-            scale_x=scale_x,
-            scale_y=scale_y,
-            transform_x=transform_x / draft_width,  #半画布宽单位
-            transform_y=transform_y / draft_height  #为半画布高单位
+            scale_x=seg_scale_x,
+            scale_y=seg_scale_y,
+            transform_x=seg_transform_x / draft_width,  #半画布宽单位
+            transform_y=seg_transform_y / draft_height  #为半画布高单位
         )
         
         # 5. 计算在时间轴上的显示时长（source duration）
@@ -592,8 +597,12 @@ def parse_video_data(json_str: str) -> List[Dict[str, Any]]:
             "mask": item.get("mask", None),  # 默认值 None
             "transition": item.get("transition", None),  # 默认值 None
             "transition_duration": item.get("transition_duration", 500000),  # 默认值 500000
-            "volume": item.get("volume", 1.0)  # 默认值 1.0
+            "volume": item.get("volume", 1.0),  # 默认值 1.0
         }
+        # 每段画面的缩放/位移（auto_render 画中画等）；未传时 add_video_to_draft 用全局参数
+        for layout_key in ("scale_x", "scale_y", "transform_x", "transform_y", "alpha"):
+            if layout_key in item:
+                processed_item[layout_key] = item[layout_key]
         
         # 验证数值范围：用户传入范围 [0, 10]，超范围时给默认值
         if processed_item["volume"] < 0 or processed_item["volume"] > 10:

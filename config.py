@@ -69,45 +69,22 @@ EXPORT_CANVAS_FROM_SOURCE = os.getenv("EXPORT_CANVAS_FROM_SOURCE", "true").lower
 )
 
 # 剪映导出编码：HEVC（H.265）/ H264；空字符串表示不改剪映面板当前选项
-EXPORT_CODEC = os.getenv("EXPORT_CODEC", "HEVC").strip().upper()
+EXPORT_CODEC = os.getenv("EXPORT_CODEC", "H264").strip().upper()
 # 剪映导出面板里编码项的显示文案（逗号分隔，按顺序尝试点击）
 EXPORT_CODEC_UI_LABELS = os.getenv(
     "EXPORT_CODEC_UI_LABELS",
-    "H.265,HEVC,H265,高效,hevc",
+    "H.264,H264,AVC,h264",
 ).strip()
 
-# 导出后处理（默认关闭，不依赖 ffmpeg）：
-#   EXPORT_MP4_WEB_OPTIMIZE=false 且 EXPORT_COMPRESS_MODE=off → 直接使用剪映直出
-EXPORT_MP4_WEB_OPTIMIZE = os.getenv("EXPORT_MP4_WEB_OPTIMIZE", "false").lower() in (
-    "1",
-    "true",
-    "yes",
-)
+# 剪映导出面板码率（Kbps，如 1000）；0 表示不改剪映当前选项
+_EXPORT_BITRATE_KBPS_RAW = os.getenv("EXPORT_BITRATE_KBPS", "0").strip()
+EXPORT_BITRATE_KBPS = int(_EXPORT_BITRATE_KBPS_RAW) if _EXPORT_BITRATE_KBPS_RAW.isdigit() else 0
 
-# 导出后压缩模式（需 ffmpeg；默认 off）：
-#   quality / source_size / off
-EXPORT_COMPRESS_MODE = os.getenv("EXPORT_COMPRESS_MODE", "off").strip().lower()
+# 码率下拉选项文案（对应截图中的「自定义」）
+EXPORT_BITRATE_MODE_UI_LABEL = os.getenv("EXPORT_BITRATE_MODE_UI_LABEL", "自定义").strip()
 
-# quality 模式 CRF：18～20 几乎看不出差异，23 更小；仅 quality 模式生效
-EXPORT_MP4_CRF = os.getenv("EXPORT_MP4_CRF", "20").strip()
-
-# x264 preset：medium 同码率更清晰，slow 更慢；勿用 ultrafast 若在意画质
-EXPORT_MP4_PRESET = os.getenv("EXPORT_MP4_PRESET", "medium").strip()
-
-# 兼容旧变量：为 true 且未指定 EXPORT_COMPRESS_MODE 时等同 source_size
-EXPORT_MATCH_SOURCE_SIZE = os.getenv("EXPORT_MATCH_SOURCE_SIZE", "false").lower() in (
-    "1",
-    "true",
-    "yes",
-)
-
-# source_size：成片目标体积 ≈ 源素材 × 系数；且视频码率不低于 QUALITY_FLOOR（避免过小发糊）
-EXPORT_SIZE_RATIO = max(1.0, float(os.getenv("EXPORT_SIZE_RATIO", "1.05")))
-EXPORT_MATCH_QUALITY_FLOOR_BPS = int(
-    os.getenv("EXPORT_MATCH_QUALITY_FLOOR_BPS", "2500000")
-)
-EXPORT_MATCH_MIN_VIDEO_BITRATE = int(os.getenv("EXPORT_MATCH_MIN_VIDEO_BITRATE", "400000"))
-EXPORT_MATCH_MAX_VIDEO_BITRATE = int(os.getenv("EXPORT_MATCH_MAX_VIDEO_BITRATE", "12000000"))
+# 码率类型：CBR（静态比特率）/ VBR（动态比特率）
+EXPORT_BITRATE_TYPE = os.getenv("EXPORT_BITRATE_TYPE", "VBR").strip().upper()
 
 # 腾讯云对象存储配置（优先）
 COS_SECRET_ID = os.getenv("COS_SECRET_ID", "")

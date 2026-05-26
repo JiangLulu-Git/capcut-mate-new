@@ -1,0 +1,65 @@
+{
+  "api_base_url": "http://172.16.94.81:30000",
+  "time_unit": "ms",
+  "async_mode": true,
+  "wait_export": true,
+  "use_source_canvas": true,
+  "videos": [
+    {
+      "video_url": "https://teststatic.xuesee.net/sfs/coursedesignpc/generate2.mp4",
+      "use_full_duration": true,
+      "overlay": true,
+      "scale_x": 0.75,
+      "scale_y": 0.75,
+      "transform_x": -160,
+      "transform_y": 0,
+      "transition": "水波向左",
+      "transition_duration": 1000,
+      "volume": 1.0,
+      "captions": [
+        { "text": "【段1·画中画】开场介绍", "start": 0, "end": 40000 },
+        { "text": "【段1·画中画】重点讲解", "start": 40000, "end": 121080 }
+      ]
+    },
+    {
+      "video_url": "https://teststatic.xuesee.net/sfs/coursedesignpc/generate1.mp4",
+      "use_full_duration": true,
+      "overlay": true,
+      "scale_x": 0.75,
+      "scale_y": 0.75,
+      "transform_x": -160,
+      "transform_y": 0,
+      "overlay_exit_duration_us": 1500,
+      "no_transition": true,
+      "volume": 1.0,
+      "captions": [
+        { "text": "【段2·画中画】本段开场", "start": 0, "end": 80000 },
+        { "text": "【段2→全屏】段末放大过渡", "start": 80000, "end": 121080 }
+      ]
+    },
+    {
+      "video_url": "https://teststatic.xuesee.net/sfs/coursedesignpc/generate1.mp4",
+      "use_full_duration": true,
+      "overlay": false,
+      "volume": 1.0,
+      "captions": [
+        { "text": "【段3·全屏】总结收尾", "start": 0, "end": 121080 }
+      ]
+    }
+  ],
+  "background_images": [
+    {
+      "image_url": "https://teststatic.xuesee.net/sfs/coursedesignpc/generate.png",
+      "align_video_index": 0
+    },
+    {
+      "image_url": "https://teststatic.xuesee.net/sfs/coursedesignpc/generate.png",
+      "align_video_index": 1
+    }
+  ],
+  "caption_bottom_margin_px": 4,
+  "caption_offset_down_px": 36,
+  "text_color": "#ffffff",
+  "font_size": 8,
+  "validate_caption_timeline": false
+}

@@ -60,8 +60,13 @@ def main() -> int:
     data = post_json(
         "/auto_render",
         {
-            "videos": [{"video_url": DEMO_VIDEO, "use_full_duration": True}],
-            "captions": [{"text": "演示", "start": 0, "end": 3_000_000}],
+            "videos": [
+                {
+                    "video_url": DEMO_VIDEO,
+                    "use_full_duration": True,
+                    "captions": [{"text": "演示", "start": 0, "end": 3_000_000}],
+                }
+            ],
             "wait_export": False,
             "api_base_url": BASE,
         },

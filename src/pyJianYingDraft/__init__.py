@@ -30,6 +30,7 @@ if ISWIN:
         from .jianying_controller import (
             JianyingController,
             ExportCodec,
+            ExportBitrateType,
             ExportFramerate,
             ExportResolution,
         )
@@ -40,6 +41,7 @@ if ISWIN:
         ExportResolution = None
         ExportFramerate = None
         ExportCodec = None
+        ExportBitrateType = None
 
 from .time_util import SEC, tim, trange
 
@@ -285,6 +287,7 @@ if ISWIN:
         "ExportResolution",
         "ExportFramerate",
         "ExportCodec",
+        "ExportBitrateType",
         "Jianying_controller",
         "Export_resolution",
         "Export_framerate",

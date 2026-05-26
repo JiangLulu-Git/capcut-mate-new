@@ -63,33 +63,50 @@ def main() -> int:
     video_urls = [args.video_url, args.video_url]
     workflow_fps = resolve_workflow_fps(video_urls)
 
-    req_without_captions = AutoRenderRequest(
+    req = AutoRenderRequest(
         videos=[
-            VideoClipInput(video_url=u, use_full_duration=True) for u in video_urls
+            VideoClipInput(
+                video_url=video_urls[0],
+                use_full_duration=True,
+                transition=args.transition,
+                transition_duration=transition_us,
+            ),
+            VideoClipInput(video_url=video_urls[1], use_full_duration=True),
         ],
-        captions=[],
-        default_transition=args.transition,
-        default_transition_duration=transition_us,
         wait_export=args.wait_export,
         api_base_url="http://127.0.0.1:30000",
     )
 
-    captions: list[CaptionInput] = []
     if not args.no_captions:
-        timeline_us = compute_timeline_duration_us(req_without_captions, workflow_fps)
+        timeline_us = compute_timeline_duration_us(req, workflow_fps)
         mid = timeline_us // 2
-        captions = [
-            CaptionInput(text="第一段字幕", start=0, end=mid),
-            CaptionInput(
-                text="第二段字幕",
-                start=mid,
-                end=timeline_us,
-                in_animation="渐显",
-                in_animation_duration=500_000,
-            ),
-        ]
-
-    req = req_without_captions.model_copy(update={"captions": captions})
+        seg2_dur = max(1, timeline_us - mid)
+        req = req.model_copy(
+            update={
+                "videos": [
+                    req.videos[0].model_copy(
+                        update={
+                            "captions": [
+                                CaptionInput(text="第一段字幕", start=0, end=mid),
+                            ]
+                        }
+                    ),
+                    req.videos[1].model_copy(
+                        update={
+                            "captions": [
+                                CaptionInput(
+                                    text="第二段字幕",
+                                    start=0,
+                                    end=seg2_dur,
+                                    in_animation="渐显",
+                                    in_animation_duration=500_000,
+                                ),
+                            ]
+                        }
+                    ),
+                ]
+            }
+        )
 
     result = auto_render(req)
     print("draft_id:", result.draft_id)

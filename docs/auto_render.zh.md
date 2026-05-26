@@ -60,21 +60,23 @@ Content-Type: application/json
   "videos": [
     {
       "video_url": "https://teststatic.xuesee.net/sfs/coursedesignpc/qq.mp4",
-      "use_full_duration": true
+      "use_full_duration": true,
+      "transition": "叠化",
+      "transition_duration": 1000000,
+      "captions": [
+        { "text": "【视频1】开场", "start": 0, "end": 5000000 },
+        { "text": "【视频1】重点", "start": 5000000, "end": 9979246 }
+      ]
     },
     {
       "video_url": "https://teststatic.xuesee.net/sfs/coursedesignpc/qq.mp4",
-      "use_full_duration": true
+      "use_full_duration": true,
+      "captions": [
+        { "text": "【视频2】转场后", "start": 0, "end": 9479246 },
+        { "text": "【视频2】收尾", "start": 9479246, "end": 18958493 }
+      ]
     }
   ],
-  "captions": [
-    { "text": "【视频1】开场", "start": 0, "end": 9979246 },
-    { "text": "【视频1】重点", "start": 9979246, "end": 19958493 },
-    { "text": "【视频2】转场后", "start": 19958493, "end": 29437739 },
-    { "text": "【视频2】收尾", "start": 29437739, "end": 38916986 }
-  ],
-  "default_transition": "叠化",
-  "default_transition_duration": 1000000,
   "font_size": 15,
   "caption_bottom_margin_px": 10,
   "text_color": "#ffffff",
@@ -97,10 +99,10 @@ Content-Type: application/json
 | videos[].start / end | int | 条件 | - | `use_full_duration=false` 时必填（微秒） |
 | videos[].transition | string | ❌ | - | 本段末尾转场名，默认用 `default_transition` |
 | videos[].transition_duration | int | ❌ | - | 本段转场时长（微秒） |
-| captions | array | ❌ | [] | 字幕列表 |
-| captions[].text | string | ✅ | - | 字幕文本 |
-| captions[].start / end | int | ✅ | - | 成片时间轴起止（微秒） |
-| captions[].font_size | int | ❌ | - | 单条字号，覆盖全局 `font_size` |
+| videos[].captions | array | ❌ | [] | 本段字幕；start/end **相对本段起点 0** |
+| videos[].captions[].text | string | ✅ | - | 字幕文本 |
+| videos[].captions[].start / end | int | ✅ | - | 相对本段时间（见 `time_unit`） |
+| videos[].captions[].font_size | int | ❌ | - | 单条字号，覆盖全局 `font_size` |
 | default_transition | string | ❌ | 叠化 | 默认转场（最后一段不加） |
 | default_transition_duration | int | ❌ | 1000000 | 默认转场 1 秒；叠化时后段提前等量重叠 |
 | use_source_canvas | bool | ❌ | true | 画布跟随第一段源视频分辨率 |
@@ -116,16 +118,19 @@ Content-Type: application/json
 | export_timeout_sec | int | ❌ | 1200 | 同步模式导出超时（秒） |
 | poll_interval_sec | float | ❌ | 5.0 | 同步模式轮询间隔（秒） |
 
-#### 字幕时间轴规则（validate_caption_timeline=true）
+#### 字幕时间轴（`validate_caption_timeline`，默认 **false**）
 
-字幕时间按**成片时间轴**（含叠化重叠），单位**微秒**：
+字幕时间按**成片时间轴**（含叠化重叠），单位**微秒**。**不要求**铺满全片，结尾可以几秒没有字幕。
 
-1. 第一条 `start = 0`
-2. 最后一条 `end = 成片总时长`（响应里 `timeline_duration_us`）
-3. 各条首尾相接，无空隙、无重叠
-4. 所有 `(end - start)` 之和 = 成片总时长
+设为 `true` 时仅做轻量校验：
 
-两段各约 20s、叠化 1s 时，成片约 **38.9s**（38916986 μs）。换视频后须重算时间。
+1. 每条 `0 <= start < end <= 成片总时长`
+2. 按 `start` 排序后，相邻字幕**不能重叠**
+3. **允许**片头、片尾、中间留空（不必凑满 `timeline_duration_us`）
+
+设为 `false` 时不校验时间，只要求 `end > start`（写入草稿前检查）。
+
+各条 `end` 仍须 **≤** 成片时长（超出会被 `validate_caption_timeline=true` 拒绝，或导致剪映轴错位）。
 
 #### 字幕位置
 
@@ -284,7 +289,6 @@ python tests/manual_auto_export_poll.py
 ```json
 {
   "videos": [{ "video_url": "https://example.com/a.mp4", "use_full_duration": true }],
-  "captions": [],
   "wait_export": false,
   "async_mode": true,
   "api_base_url": "http://172.16.94.161:30000"

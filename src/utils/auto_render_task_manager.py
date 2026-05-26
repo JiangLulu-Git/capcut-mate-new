@@ -229,11 +229,14 @@ class AutoRenderTaskManager:
             )
         except Exception as exc:
             task.build_phase = BuildPhase.FAILED
-            task.build_error = str(exc)
+            if isinstance(exc, CustomException) and exc.detail:
+                task.build_error = f"{exc.err.cn_message}({exc.detail})"
+            else:
+                task.build_error = str(exc)
             logger.error(
                 "auto_render build failed: task_id=%s error=%s",
                 task_id,
-                exc,
+                task.build_error,
             )
             return
 

@@ -19,7 +19,7 @@ except ImportError as e:
     raise ImportError(f"Missing required Windows dependencies: {e}. Please install with: pip install pyautogui[windows]")
 
 from enum import Enum
-from typing import Optional, Literal, Callable
+from typing import Optional, Literal, Callable, Iterable, Union
 
 from . import exceptions
 from .exceptions import AutomationError
@@ -49,6 +49,12 @@ class ExportCodec(Enum):
     """导出视频编码（剪映导出面板选项文案，因版本而异可配置 EXPORT_CODEC_UI_LABELS）"""
     HEVC = "hevc"
     H264 = "h264"
+
+
+class ExportBitrateType(Enum):
+    """导出码率类型（剪映导出面板）"""
+    CBR = "cbr"
+    VBR = "vbr"
 
 class ControlFinder:
     """控件查找器，封装部分与控件查找相关的逻辑"""
@@ -115,9 +121,9 @@ class JianyingController:
                     raise exceptions.DraftNotFound(f"未找到名为{draft_name}的剪映草稿")
                 draft_btn = draft_name_text.GetParentControl()
                 assert draft_btn is not None
+                self.__ensure_window_focus()
                 draft_btn.Click(simulateMove=False)
-                time.sleep(10)
-                self.get_window()
+                self.wait_for_edit_page(timeout=90)
                 return  # 成功则返回
             except exceptions.DraftNotFound as e:
                 last_exception = e
@@ -133,18 +139,55 @@ class JianyingController:
         # 所有重试都失败，抛出异常
         raise last_exception
 
+    def wait_for_edit_page(self, timeout: float = 60.0) -> None:
+        """等待草稿打开并进入编辑页。"""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            self.get_window()
+            if self.app_status == "edit":
+                time.sleep(2)
+                self.get_window()
+                if self.app_status == "edit":
+                    logger.info("Draft editor ready")
+                    return
+            time.sleep(1)
+        self.get_window()
+        raise AutomationError(
+            "打开草稿后未能进入编辑页 (当前 status=%s)，请确认草稿可正常打开且无弹窗阻挡"
+            % self.app_status
+        )
+
     def click_export_button(self) -> None:
         """点击编辑页面的导出按钮
         
         Raises:
             AutomationError: 未找到导出按钮
         """
-        export_btn = self.app.TextControl(searchDepth=2, Compare=ControlFinder.desc_matcher("MainWindowTitleBarExportBtn"))
-        if not export_btn.Exists(0):
-            raise AutomationError("未在编辑窗口中找到导出按钮")
-        export_btn.Click(simulateMove=False)
-        time.sleep(10)
         self.get_window()
+        if self.app_status != "edit":
+            raise AutomationError(
+                f"当前不在编辑页 (status={self.app_status})，无法点击导出按钮"
+            )
+        self.__ensure_window_focus()
+
+        for depth in (2, 4, 6, 8):
+            export_btn = self.app.TextControl(
+                searchDepth=depth,
+                Compare=ControlFinder.desc_matcher("MainWindowTitleBarExportBtn"),
+            )
+            if export_btn.Exists(1):
+                export_btn.Click(simulateMove=False)
+                time.sleep(10)
+                self.get_window()
+                return
+            export_btn = self.app.TextControl(searchDepth=depth, Name="导出")
+            if export_btn.Exists(1):
+                export_btn.Click(simulateMove=False)
+                time.sleep(10)
+                self.get_window()
+                return
+
+        raise AutomationError("未在编辑窗口中找到导出按钮")
 
     def get_original_export_path(self) -> str:
         """获取原始导出路径
@@ -282,6 +325,206 @@ class JianyingController:
             labels,
         )
 
+    def _get_export_setting_group(self) -> Optional[uia.Control]:
+        setting_group = self.app.GroupControl(
+            searchDepth=1,
+            Compare=ControlFinder.class_name_matcher("PanelSettingsGroup_QMLTYPE"),
+        )
+        if not setting_group.Exists(0):
+            return None
+        return setting_group
+
+    def _find_setting_control(
+        self,
+        setting_group: uia.Control,
+        descs: Iterable[str],
+        *,
+        depth: int = 2,
+    ) -> Optional[uia.Control]:
+        for desc in descs:
+            if not desc.strip():
+                continue
+            ctrl = setting_group.TextControl(
+                searchDepth=depth,
+                Compare=ControlFinder.desc_matcher(desc.strip()),
+            )
+            if ctrl.Exists(0.5):
+                return ctrl
+        return None
+
+    def _click_dropdown_option(self, option_labels: Iterable[str]) -> bool:
+        for label in option_labels:
+            if not label.strip():
+                continue
+            item = self.app.TextControl(
+                searchDepth=2,
+                Compare=ControlFinder.desc_matcher(label.strip()),
+            )
+            if item.Exists(0.5):
+                item.Click(simulateMove=False)
+                time.sleep(0.5)
+                return True
+            item = self.app.TextControl(searchDepth=2, Name=label.strip())
+            if item.Exists(0.5):
+                item.Click(simulateMove=False)
+                time.sleep(0.5)
+                return True
+        return False
+
+    def _set_numeric_input(self, control: uia.Control, value: str) -> None:
+        control.Click(simulateMove=False)
+        time.sleep(0.3)
+        control.SendKeys("{Ctrl}a")
+        time.sleep(0.1)
+        control.SendKeys(str(value))
+        time.sleep(0.3)
+
+    def _find_bitrate_value_control(self, setting_group: uia.Control) -> Optional[uia.Control]:
+        """查找码率数值输入框（剪映版本差异大，多策略兜底）。"""
+        value_input_descs = (
+            "ExportBitrateValueInput",
+            "ExportBitRateValueInput",
+            "BitRateValueInput",
+            "BitrateValueInput",
+            "ExportBitrateNumberInput",
+            "ExportBitrateInputValue",
+        )
+        ctrl = self._find_setting_control(setting_group, value_input_descs, depth=4)
+        if ctrl is not None:
+            return ctrl
+
+        for desc in value_input_descs:
+            for depth in (3, 5, 8):
+                edit = setting_group.EditControl(
+                    searchDepth=depth,
+                    Compare=ControlFinder.desc_matcher(desc),
+                )
+                if edit.Exists(0.3):
+                    return edit
+
+        for name in ("Kbps", "kbps", "KBPS"):
+            label = setting_group.TextControl(searchDepth=8, Name=name)
+            if not label.Exists(0.3):
+                label = self.app.TextControl(searchDepth=8, Name=name)
+            if label.Exists(0.3):
+                prev = label.GetPreviousSiblingControl()
+                if prev is not None and prev.Exists(0):
+                    return prev
+
+        candidates: list[uia.Control] = []
+
+        def collect(node: uia.Control, depth: int = 0) -> None:
+            if depth > 10:
+                return
+            try:
+                ctype = node.ControlTypeName
+                if ctype in ("EditControl", "SpinnerControl"):
+                    candidates.append(node)
+            except Exception:
+                pass
+            for child in node.GetChildren():
+                collect(child, depth + 1)
+
+        collect(setting_group)
+        for candidate in candidates:
+            try:
+                name = (candidate.Name or "").strip()
+                if name.isdigit():
+                    return candidate
+            except Exception:
+                continue
+        if len(candidates) == 1:
+            return candidates[0]
+        return None
+
+    def set_export_bitrate(
+        self,
+        kbps: Optional[int],
+        *,
+        mode_label: str = "自定义",
+        bitrate_type: Union[ExportBitrateType, str] = ExportBitrateType.VBR,
+    ) -> None:
+        """设置导出码率：模式下拉选「自定义」，再填 Kbps 并选择 CBR/VBR。"""
+        if kbps is None or kbps <= 0:
+            return
+
+        if isinstance(bitrate_type, str):
+            normalized = bitrate_type.strip().lower()
+            if normalized in ("cbr", "静态"):
+                bitrate_type = ExportBitrateType.CBR
+            else:
+                bitrate_type = ExportBitrateType.VBR
+
+        setting_group = self._get_export_setting_group()
+        if setting_group is None:
+            logger.warning("未找到导出设置组，跳过码率设置")
+            return
+
+        mode_input_descs = (
+            "ExportBitrateInput",
+            "ExportBitRateInput",
+            "BitRateInput",
+            "BitrateInput",
+            "ExportCodeRateInput",
+            "CodeRateInput",
+        )
+        mode_btn = self._find_setting_control(setting_group, mode_input_descs)
+        if mode_btn is None:
+            logger.warning(
+                "未找到导出码率下拉框（尝试过 %s），跳过码率设置",
+                ", ".join(mode_input_descs),
+            )
+            return
+
+        mode_btn.Click(simulateMove=False)
+        time.sleep(0.5)
+        if not self._click_dropdown_option([mode_label, "自定义", "custom"]):
+            logger.warning("未在导出面板找到码率模式「%s」，跳过码率设置", mode_label)
+            return
+
+        time.sleep(0.8)
+        value_ctrl = self._find_bitrate_value_control(setting_group)
+        if value_ctrl is None:
+            logger.warning("未找到导出码率数值输入框，跳过码率设置")
+            return
+
+        self._set_numeric_input(value_ctrl, str(int(kbps)))
+        logger.info("Export bitrate value set to %s Kbps", int(kbps))
+
+        if bitrate_type == ExportBitrateType.CBR:
+            type_descs = ("ExportBitrateTypeCBR", "ExportBitRateCBR", "BitrateCBRInput")
+            type_names = ("CBR", "静态比特率")
+        else:
+            type_descs = ("ExportBitrateTypeVBR", "ExportBitRateVBR", "BitrateVBRInput")
+            type_names = ("VBR", "动态比特率")
+
+        type_ctrl = self._find_setting_control(setting_group, type_descs, depth=3)
+        if type_ctrl is not None:
+            type_ctrl.Click(simulateMove=False)
+            time.sleep(0.3)
+            logger.info("Export bitrate type set via desc: %s", bitrate_type.value)
+            return
+
+        for name in type_names:
+            item = setting_group.TextControl(searchDepth=4, Name=name)
+            if item.Exists(0.5):
+                item.Click(simulateMove=False)
+                time.sleep(0.3)
+                logger.info("Export bitrate type set via name: %s", name)
+                return
+            item = self.app.TextControl(searchDepth=4, Compare=ControlFinder.desc_matcher(name))
+            if item.Exists(0.5):
+                item.Click(simulateMove=False)
+                time.sleep(0.3)
+                logger.info("Export bitrate type set via label: %s", name)
+                return
+
+        logger.warning(
+            "未找到码率类型选项 %s（已尝试 desc=%s），数值已填写",
+            bitrate_type.value,
+            ", ".join(type_descs),
+        )
+
     def click_final_export_button(self) -> None:
         """点击导出窗口的最终导出按钮
         
@@ -367,6 +610,9 @@ class JianyingController:
                      framerate: Optional[ExportFramerate] = ExportFramerate.FR_25,
                      codec: Optional[ExportCodec] = None,
                      codec_ui_labels: Optional[list[str]] = None,
+                     bitrate_kbps: Optional[int] = None,
+                     bitrate_type: Union[ExportBitrateType, str] = ExportBitrateType.VBR,
+                     bitrate_mode_label: str = "自定义",
                      timeout: float = 1200) -> None:
         """导出指定的剪映草稿, **目前仅支持剪映6及以下版本**
 
@@ -379,6 +625,9 @@ class JianyingController:
             framerate (`Export_framerate`, optional): 导出帧率, 默认为 25fps.
             codec (`ExportCodec`, optional): 导出编码（如 HEVC/H.265）.
             codec_ui_labels (`list[str]`, optional): 剪映面板中编码项的显示文案，按顺序尝试点击.
+            bitrate_kbps (`int`, optional): 导出码率（Kbps），需配合「自定义」模式.
+            bitrate_type (`ExportBitrateType` | `str`, optional): CBR 或 VBR，默认 VBR.
+            bitrate_mode_label (`str`, optional): 码率下拉中「自定义」的 UI 文案.
             timeout (`float`, optional): 导出超时时间(秒), 默认为20分钟.
 
         Raises:
@@ -412,6 +661,11 @@ class JianyingController:
                     self.set_export_resolution(resolution)
                     self.set_export_framerate(framerate)
                     self.set_export_codec(codec, ui_labels=codec_ui_labels)
+                    self.set_export_bitrate(
+                        bitrate_kbps,
+                        mode_label=bitrate_mode_label,
+                        bitrate_type=bitrate_type,
+                    )
                     # 点击最终导出按钮
                     self.click_final_export_button()
                     # 获取窗口状态
